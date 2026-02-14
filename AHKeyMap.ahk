@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.0.0
+;@Ahk2Exe-SetVersion 2.0.1
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,7 +18,7 @@ Persistent
 ; 全局变量
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.0"
+global APP_VERSION := "2.0.1"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
@@ -381,6 +381,8 @@ RefreshMappingLV() {
         ptText := ""
         if (mapping["ModifierKey"] != "")
             ptText := mapping["PassthroughMod"] ? "保留" : "拦截"
+        delayText := mapping["HoldRepeat"] ? mapping["RepeatDelay"] : ""
+        intervalText := mapping["HoldRepeat"] ? mapping["RepeatInterval"] : ""
         MappingLV.Add(""
             , idx
             , modDisplay
@@ -388,8 +390,8 @@ RefreshMappingLV() {
             , KeyToDisplay(mapping["TargetKey"])
             , holdText
             , ptText
-            , mapping["RepeatDelay"]
-            , mapping["RepeatInterval"])
+            , delayText
+            , intervalText)
     }
     ; 自动调整列宽
     loop 8

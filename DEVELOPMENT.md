@@ -104,6 +104,10 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - 所有弹窗改为模态窗口（`CreateModalGui`/`DestroyModalGui`），打开时禁用主窗口，防止重复打开
 - 进程选择器使用 `ProcessPickerOpen` 全局标志 + `CloseProcessPicker` 函数防止重复打开（AHK v2 fat arrow 中不允许 `global` 关键字）
 
+### v2.0.1 — Bug 修复
+
+- 修复 ListView 中未启用长按连续触发的映射仍显示触发延迟和触发间隔数值的问题（`RefreshMappingLV` 增加条件判断）
+
 ## 文件架构
 
 ### AHKeyMap.ahk 模块划分（v2.0）
