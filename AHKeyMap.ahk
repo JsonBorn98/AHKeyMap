@@ -1482,6 +1482,11 @@ KeyToSendFormat(ahkKey) {
 
 global ProcessPickerOpen := false
 
+CloseProcessPicker(procGui, *) {
+    global ProcessPickerOpen := false
+    procGui.Destroy()
+}
+
 ShowProcessPicker(targetEdit, isMultiLine := false) {
     if (ProcessPickerOpen)
         return
@@ -1489,7 +1494,7 @@ ShowProcessPicker(targetEdit, isMultiLine := false) {
 
     procGui := Gui("+AlwaysOnTop +ToolWindow", "选择进程")
     procGui.SetFont("s9", "Microsoft YaHei UI")
-    procGui.OnEvent("Close", (*) => (global ProcessPickerOpen := false, procGui.Destroy()))
+    procGui.OnEvent("Close", CloseProcessPicker.Bind(procGui))
 
     procGui.AddText("x10 y10 w80 h23 +0x200", "手动输入:")
     manualEdit := procGui.AddEdit("x90 y10 w200 h23 vManualProc")
@@ -1500,7 +1505,7 @@ ShowProcessPicker(targetEdit, isMultiLine := false) {
     lb := procGui.AddListBox("x10 y65 w280 h200 vSelectedProc +Multi", procList)
 
     procGui.AddButton("x60 y275 w80 h28", "确定").OnEvent("Click", OnProcessPickOK.Bind(procGui, targetEdit, lb, manualEdit, isMultiLine))
-    procGui.AddButton("x160 y275 w80 h28", "取消").OnEvent("Click", (*) => (global ProcessPickerOpen := false, procGui.Destroy()))
+    procGui.AddButton("x160 y275 w80 h28", "取消").OnEvent("Click", CloseProcessPicker.Bind(procGui))
 
     procGui.Show("w300 h315")
 }

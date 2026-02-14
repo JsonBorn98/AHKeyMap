@@ -90,6 +90,8 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - 修改作用域对话框：三态单选按钮 + 进程列表编辑
 - 进程显示文本根据模式显示不同文案（全局 / 仅 xxx / 排除 xxx）
 - 状态栏显示"已启用 N/M 个配置"
+- 所有弹窗改为模态窗口（`CreateModalGui`/`DestroyModalGui`），打开时禁用主窗口，防止重复打开
+- 进程选择器使用 `ProcessPickerOpen` 全局标志 + `CloseProcessPicker` 函数防止重复打开（AHK v2 fat arrow 中不允许 `global` 关键字）
 
 ## 文件架构
 
