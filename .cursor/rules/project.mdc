@@ -10,7 +10,10 @@ alwaysApply: true
 ## 提交流程
 
 - 每完成一个功能或修复后，主动提示用户是否需要更新 `DEVELOPMENT.md` 文档并提交 git commit。
-- 提交前确保版本号（`APP_VERSION` 和 `Ahk2Exe-SetVersion`）已同步更新。
+- **每次改动都必须同步更新版本号**，涉及两处，缺一不可：
+  - `AHKeyMap.ahk` 第 13 行：`;@Ahk2Exe-SetVersion x.y.z`（编译用，三段式）
+  - `AHKeyMap.ahk` 第 21 行：`global APP_VERSION := "x.y"`（运行时显示）
+  - 版本规则：新功能升 minor（如 2.1 → 2.2），bug 修复升 patch（如 2.1 → 2.1.1）
 - 提交信息使用中文描述，格式参考：`v版本号: 功能描述` 或 `fix: 修复描述`。
 
 ## 代码规范
