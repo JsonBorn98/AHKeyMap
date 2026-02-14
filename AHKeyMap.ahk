@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.0.1
+;@Ahk2Exe-SetVersion 2.1.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,7 +18,7 @@ Persistent
 ; 全局变量
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.0.1"
+global APP_VERSION := "2.1"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
@@ -450,6 +450,10 @@ BuildMainGui() {
     tray := A_TrayMenu
     tray.Delete()
     tray.Add("显示主窗口", OnTrayShow)
+    tray.Add()
+    tray.Add("开机自启", OnTrayAutoStartToggle)
+    if IsAutoStartEnabled()
+        tray.Check("开机自启")
     tray.Add()
     adminTrayItem := "以管理员身份重启"
     tray.Add(adminTrayItem, OnRunAsAdmin)
@@ -1989,6 +1993,17 @@ OnTrayExit(*) {
     ExitApp()
 }
 
+; 托盘菜单切换自启
+OnTrayAutoStartToggle(*) {
+    if IsAutoStartEnabled() {
+        DisableAutoStart()
+        A_TrayMenu.Uncheck("开机自启")
+    } else {
+        EnableAutoStart()
+        A_TrayMenu.Check("开机自启")
+    }
+}
+
 OnRunAsAdmin(*) {
     if A_IsAdmin {
         MsgBox("当前已经是管理员模式", APP_NAME, "Icon!")
@@ -2000,4 +2015,27 @@ OnRunAsAdmin(*) {
     } catch as e {
         MsgBox("提权失败，可能被用户取消了`n" e.Message, APP_NAME, "Icon!")
     }
+}
+
+; ============================================================================
+; 开机自启（注册表）
+; ============================================================================
+global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+global REG_VALUE_NAME := "AHKeyMap"
+
+IsAutoStartEnabled() {
+    try {
+        val := RegRead(REG_RUN_KEY, REG_VALUE_NAME)
+        return val != ""
+    } catch
+        return false
+}
+
+EnableAutoStart() {
+    exePath := A_IsCompiled ? A_ScriptFullPath : (A_AhkPath ' "' A_ScriptFullPath '"')
+    RegWrite(exePath, "REG_SZ", REG_RUN_KEY, REG_VALUE_NAME)
+}
+
+DisableAutoStart() {
+    try RegDelete(REG_RUN_KEY, REG_VALUE_NAME)
 }

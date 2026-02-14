@@ -1,0 +1,19 @@
+---
+description: AHKeyMap 项目开发规则
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# AHKeyMap 项目开发规则
+
+## 提交流程
+
+- 每完成一个功能或修复后，主动提示用户是否需要更新 `DEVELOPMENT.md` 文档并提交 git commit。
+- 提交前确保版本号（`APP_VERSION` 和 `Ahk2Exe-SetVersion`）已同步更新。
+- 提交信息使用中文描述，格式参考：`v版本号: 功能描述` 或 `fix: 修复描述`。
+
+## 代码规范
+
+- 单文件架构（`AHKeyMap.ahk`），修改前必须先读取相关代码段。
+- 不在未经用户许可的情况下修改已有代码，新增代码写入前也需要确认。

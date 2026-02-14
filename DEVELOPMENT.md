@@ -108,6 +108,12 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 
 - 修复 ListView 中未启用长按连续触发的映射仍显示触发延迟和触发间隔数值的问题（`RefreshMappingLV` 增加条件判断）
 
+### v2.1 — 开机自启
+
+- 新增开机自启功能，通过注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 实现
+- 托盘右键菜单新增「开机自启」勾选项，启动时自动读取注册表判断当前状态
+- 支持脚本模式和编译 EXE 模式（`A_IsCompiled` 分支处理路径格式）
+
 ## 文件架构
 
 ### AHKeyMap.ahk 模块划分（v2.0）
