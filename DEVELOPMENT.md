@@ -7,6 +7,7 @@
 AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采用**单文件架构**（`AHKeyMap.ahk`），使用 AHKv2 原生 `Gui` 构建界面，INI 格式保存配置。
 
 核心能力：
+
 - 多配置管理（新建/复制/切换/删除）
 - **多配置同时生效**：所有已启用配置的热键同时加载，根据前台窗口自动切换
 - **三态进程作用域**：全局生效 / 仅指定进程 / 排除指定进程
@@ -32,15 +33,18 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 ### v1.1 — 扩展映射模型
 
 **数据模型扩展：**
+
 - 每条映射新增 `ModifierKey`（自定义修饰键）和 `PassthroughMod`（是否保留修饰键原始功能）字段
 - INI 配置文件同步更新读写
 
 **多进程绑定：**
+
 - `Process` 字段支持 `|` 分隔多个进程名（如 `msedge.exe|chrome.exe`）
 - 热键条件从 `HotIfWinActive` 改为 `HotIf(CheckProcessMatch)` 自定义回调
 - 修改进程对话框改为多行编辑，进程选择器支持多选
 
 **按键捕获重写：**
+
 - 废弃 `InputHook`（按下即结束，无法捕获组合键）
 - 改为 `SetTimer` 每 30ms 轮询 `GetKeyState` + `OnMessage` 鼠标钩子
 - "松开时确认"机制：实时显示当前按住的组合，保留按键数量峰值，全部松开后确认
@@ -48,11 +52,13 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - 200ms 延迟启动避免捕获到点击"捕获"按钮的鼠标事件
 
 **热键引擎三条路径：**
+
 - 路径 A（无修饰键）：直接 `Hotkey(sourceKey, callback)`，与 v1.0 相同
 - 路径 B（拦截式组合）：`Hotkey("modKey & sourceKey", callback)`，额外注册修饰键恢复热键
 - 路径 C（状态追踪式组合）：`Hotkey(sourceKey, handler)` + `GetKeyState(modKey)` 检查，`~modKey` 前缀让物理事件通过保留手势功能，`ComboFiredState` 追踪是否触发过组合，松开时抑制副作用（如右键菜单）
 
 **编辑弹窗扩展：**
+
 - 新增修饰键输入行（捕获 + 清除按钮）
 - 新增"保留修饰键原始功能"复选框（仅修饰键非空时可用）
 - ListView 增加"修饰键"和"修饰键模式"列
@@ -60,24 +66,28 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 ### v2.0 — 多配置并行生效 + 三态进程作用域
 
 **核心架构变更：**
+
 - 从"单配置激活"改为"多配置同时生效"：所有已启用配置的热键同时加载
 - 新增 `AllConfigs` 全局数组，存储所有配置的完整数据
 - 配置切换仅影响 GUI 显示，不再卸载/重载热键
 - 热键引擎遍历所有已启用配置，每个配置使用独立的 `HotIf` 闭包条件
 
 **三态进程作用域（互斥）：**
+
 - `global`：全局生效，无条件匹配
 - `include`：仅指定进程前台时生效（原有功能）
 - `exclude`：排除指定进程，其余情况生效（新增）
 - INI 新增 `ProcessMode` 和 `ExcludeProcess` 字段，向后兼容旧配置
 
 **配置管理增强：**
+
 - 新增配置复制功能（默认名 `原名_copy`，可改名）
 - 新增启用/禁用复选框，控制配置是否参与热键注册
 - `_state.ini` 新增 `[EnabledConfigs]` section 持久化各配置启用状态
 - 状态栏显示已启用配置数量
 
 **热键引擎重构：**
+
 - `MakeProcessChecker(cfg)` 工厂函数：根据配置的 `processMode` 创建独立闭包
 - `ReloadAllHotkeys()` 遍历所有已启用配置，按优先级注册（include > exclude > global）
 - `RegisterConfigHotkeys(cfg)` 为单个配置注册所有热键
@@ -85,6 +95,7 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - `AllProcessCheckers` 数组持有闭包引用，防止被 GC 回收
 
 **GUI 改动：**
+
 - 主窗口配置栏：新增"启用"复选框、"复制"按钮、"作用域"按钮（替代"修改进程"）
 - 新建配置对话框：三态单选按钮 + 进程列表编辑
 - 修改作用域对话框：三态单选按钮 + 进程列表编辑
@@ -152,6 +163,7 @@ PassthroughMod=1
 ```
 
 **Meta 字段说明：**
+
 - `ProcessMode`：`global`（全局生效）/ `include`（仅指定进程）/ `exclude`（排除指定进程），三选一
 - `Process`：仅 `include` 模式使用，`|` 分隔的进程名列表
 - `ExcludeProcess`：仅 `exclude` 模式使用，`|` 分隔的排除进程名列表
