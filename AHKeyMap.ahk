@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.1.2
+;@Ahk2Exe-SetVersion 2.1.3
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -1658,6 +1658,10 @@ UnregisterAllHotkeys() {
     ; 卸载所有已注册的热键
     for _, hk in ActiveHotkeys {
         try {
+            ; 防御性检查：确保 hk 是有效的 Map 对象
+            if (Type(hk) != "Map")
+                continue
+
             if (hk.Has("checker") && hk["checker"] != "")
                 HotIf(hk["checker"])
             else

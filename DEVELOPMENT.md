@@ -129,6 +129,12 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - **问题**：SourceKey 含修饰键前缀（如 `^+C` 表示 Ctrl+Shift+C）且启用长按连续触发时，`RepeatTimerCallback` 将 `^+C` 直接传入 `GetKeyState` 导致报错（`GetKeyState` 只接受纯按键名）
 - **修复**：在 `RepeatTimerCallback` 中用 `RegExReplace` 剥离 `^ + ! #` 修饰前缀后再调用 `GetKeyState`
 
+### v2.1.3 — Bug 修复：复制后删除配置崩溃
+
+- **问题**：快速复制配置后立即删除时，程序崩溃并报错 "Critical Error: Invalid memory read/write"，错误发生在 `UnregisterAllHotkeys()` 的 `hk.Has("keyUp")` 调用处
+- **根因**：快速复制后删除触发多次 `ReloadAllHotkeys()` 调用，某些边界情况下 `ActiveHotkeys` 数组中可能存在非 Map 类型的无效引用，直接调用 `hk.Has()` 方法触发内存访问错误
+- **修复**：在 `UnregisterAllHotkeys()` 遍历 `ActiveHotkeys` 时增加防御性类型检查 `Type(hk) != "Map"`，跳过无效对象避免崩溃
+
 ## 文件架构
 
 ### AHKeyMap.ahk 模块划分（v2.0）
