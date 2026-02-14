@@ -22,6 +22,8 @@ global APP_VERSION := "2.1"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
+global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+global REG_VALUE_NAME := "AHKeyMap"
 
 ; 多配置并存：所有已加载的配置
 ; 每项为 Map: name, file, processMode, process, processList, excludeProcess, excludeProcessList, mappings, enabled, checker
@@ -2020,9 +2022,6 @@ OnRunAsAdmin(*) {
 ; ============================================================================
 ; 开机自启（注册表）
 ; ============================================================================
-global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
-global REG_VALUE_NAME := "AHKeyMap"
-
 IsAutoStartEnabled() {
     try {
         val := RegRead(REG_RUN_KEY, REG_VALUE_NAME)
