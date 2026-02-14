@@ -764,7 +764,7 @@ OnChangeProcessOK(changeGui, *) {
 
     SaveConfig()
     ReloadAllHotkeys()
-    changeGui.Destroy()
+    DestroyModalGui(changeGui)
 }
 
 ; ============================================================================
@@ -855,7 +855,7 @@ OnDeleteMapping(*) {
 ; ============================================================================
 
 ShowEditMappingGui() {
-    global EditGui := Gui("+Owner" MainGui.Hwnd " +ToolWindow", EditingIndex > 0 ? "编辑映射" : "新增映射")
+    global EditGui := CreateModalGui(EditingIndex > 0 ? "编辑映射" : "新增映射")
     EditGui.SetFont("s9", "Microsoft YaHei UI")
 
     ; 修饰键（新增行）
@@ -916,9 +916,7 @@ ShowEditMappingGui() {
 
     ; 按钮
     EditGui.AddButton("x100 y210 w80 h28", "确定").OnEvent("Click", OnEditMappingOK)
-    EditGui.AddButton("x190 y210 w80 h28", "取消").OnEvent("Click", (*) => EditGui.Destroy())
-
-    EditGui.OnEvent("Close", (*) => EditGui.Destroy())
+    EditGui.AddButton("x190 y210 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(EditGui))
     EditGui.Show("w395 h250")
 }
 
@@ -974,7 +972,7 @@ OnEditMappingOK(*) {
     SaveConfig()
     RefreshMappingLV()
     ReloadAllHotkeys()
-    EditGui.Destroy()
+    DestroyModalGui(EditGui)
 }
 
 ; ============================================================================
@@ -1482,9 +1480,16 @@ KeyToSendFormat(ahkKey) {
 ; 进程选择器
 ; ============================================================================
 
+global ProcessPickerOpen := false
+
 ShowProcessPicker(targetEdit, isMultiLine := false) {
-    procGui := Gui("+Owner" MainGui.Hwnd " +ToolWindow", "选择进程")
+    if (ProcessPickerOpen)
+        return
+    global ProcessPickerOpen := true
+
+    procGui := Gui("+AlwaysOnTop +ToolWindow", "选择进程")
     procGui.SetFont("s9", "Microsoft YaHei UI")
+    procGui.OnEvent("Close", (*) => (global ProcessPickerOpen := false, procGui.Destroy()))
 
     procGui.AddText("x10 y10 w80 h23 +0x200", "手动输入:")
     manualEdit := procGui.AddEdit("x90 y10 w200 h23 vManualProc")
@@ -1495,12 +1500,13 @@ ShowProcessPicker(targetEdit, isMultiLine := false) {
     lb := procGui.AddListBox("x10 y65 w280 h200 vSelectedProc +Multi", procList)
 
     procGui.AddButton("x60 y275 w80 h28", "确定").OnEvent("Click", OnProcessPickOK.Bind(procGui, targetEdit, lb, manualEdit, isMultiLine))
-    procGui.AddButton("x160 y275 w80 h28", "取消").OnEvent("Click", (*) => procGui.Destroy())
+    procGui.AddButton("x160 y275 w80 h28", "取消").OnEvent("Click", (*) => (global ProcessPickerOpen := false, procGui.Destroy()))
 
     procGui.Show("w300 h315")
 }
 
 OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
+    global ProcessPickerOpen := false
     manual := Trim(manualEdit.Value)
     selected := []
 
@@ -1544,6 +1550,7 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
             targetEdit.Value := result
         }
     }
+    global ProcessPickerOpen := false
     procGui.Destroy()
 }
 
