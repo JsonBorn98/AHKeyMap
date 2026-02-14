@@ -114,6 +114,16 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - 托盘右键菜单新增「开机自启」勾选项，启动时自动读取注册表判断当前状态
 - 支持脚本模式和编译 EXE 模式（`A_IsCompiled` 分支处理路径格式）
 
+### v2.1.1 — Bug 修复：长按连续触发定时器泄漏
+
+- **问题**：两个启用长按连续触发的映射（如 XButton1→PgDn、XButton2→PgUp）同时按下时，定时器可能无法正确停止，导致网页持续上下乱滚，只能关闭软件
+- **根因**：`HoldDownCallback` 每次调用创建新的 `timerFn`（`Bind()` 产生新对象），重入时旧定时器引用被覆盖成为孤立定时器；`HoldUpCallback` 无法取消待触发的 `StartRepeat` 一次性延迟定时器
+- **修复（三重防御）**：
+  - `HoldDownCallback`：新增防御性清理，创建新定时器前先停止已有的 `fn` 和 `startFn`
+  - `RepeatTimerCallback`：新增 `GetKeyState(sourceKey, "P")` 物理按键状态检查，源按键松开后自动停止定时器（自愈机制）；滚轮键跳过检查
+  - `HoldUpCallback`：同时取消 `startFn`（延迟启动定时器）和 `fn`（重复定时器）
+- 路径 A/B/C 的定时器创建逻辑同步更新
+
 ## 文件架构
 
 ### AHKeyMap.ahk 模块划分（v2.0）

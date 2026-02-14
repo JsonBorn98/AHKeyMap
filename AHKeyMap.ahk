@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.1.0
+;@Ahk2Exe-SetVersion 2.1.1
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -1781,7 +1781,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
         hkInfo["key"] := sourceKey
 
         if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx)
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
             upCb := HoldUpCallback.Bind(uniqueIdx)
             try {
                 Hotkey(sourceKey, downCb, "On")
@@ -1799,7 +1799,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
         hkInfo["key"] := comboKey
 
         if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx)
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
             upCb := HoldUpCallback.Bind(uniqueIdx)
             try {
                 Hotkey(comboKey, downCb, "On")
@@ -1907,13 +1907,23 @@ SendKeyCallback(targetKey, *) {
     Send(KeyToSendFormat(targetKey))
 }
 
-HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, *) {
+HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, sourceKey, *) {
+    ; 防御性清理：如果已有定时器运行（防止重入导致孤立定时器）
+    if HoldTimers.Has(idx) {
+        if (HoldTimers[idx].HasProp("fn"))
+            SetTimer(HoldTimers[idx].fn, 0)
+        if (HoldTimers[idx].HasProp("startFn"))
+            SetTimer(HoldTimers[idx].startFn, 0)
+        HoldTimers[idx].active := false
+    }
+
     sendKey := KeyToSendFormat(targetKey)
     Send(sendKey)
 
-    timerFn := RepeatTimerCallback.Bind(sendKey)
-    HoldTimers[idx] := { fn: timerFn, interval: repeatInterval, active: true }
-    SetTimer(StartRepeat.Bind(idx, timerFn, repeatInterval), -repeatDelay)
+    timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx)
+    startFn := StartRepeat.Bind(idx, timerFn, repeatInterval)
+    HoldTimers[idx] := { fn: timerFn, startFn: startFn, interval: repeatInterval, active: true }
+    SetTimer(startFn, -repeatDelay)
 }
 
 StartRepeat(idx, timerFn, interval, *) {
@@ -1921,7 +1931,17 @@ StartRepeat(idx, timerFn, interval, *) {
         SetTimer(timerFn, interval)
 }
 
-RepeatTimerCallback(sendKey, *) {
+RepeatTimerCallback(sendKey, sourceKey, idx, *) {
+    ; 安全检查：如果源按键已松开（非滚轮键），自动停止定时器
+    if (sourceKey != "" && !RegExMatch(sourceKey, "^Wheel") && !GetKeyState(sourceKey, "P")) {
+        if HoldTimers.Has(idx) {
+            if (HoldTimers[idx].HasProp("fn"))
+                SetTimer(HoldTimers[idx].fn, 0)
+            HoldTimers[idx].active := false
+            HoldTimers.Delete(idx)
+        }
+        return
+    }
     Send(sendKey)
 }
 
@@ -1929,6 +1949,8 @@ HoldUpCallback(idx, *) {
     if HoldTimers.Has(idx) {
         if (HoldTimers[idx].HasProp("fn"))
             SetTimer(HoldTimers[idx].fn, 0)
+        if (HoldTimers[idx].HasProp("startFn"))
+            SetTimer(HoldTimers[idx].startFn, 0)
         HoldTimers[idx].active := false
         HoldTimers.Delete(idx)
     }
@@ -1959,11 +1981,15 @@ PassthroughSourceHandler(groupKey, *) {
 
             if (h.holdRepeat) {
                 ; 长按连续触发
+                ; 提取 sourceKey（从 groupKey "configName|sourceKey"）
+                _parts := StrSplit(groupKey, "|",, 2)
+                _srcKey := _parts.Length >= 2 ? _parts[2] : ""
                 sendKey := KeyToSendFormat(h.targetKey)
                 Send(sendKey)
-                timerFn := RepeatTimerCallback.Bind(sendKey)
-                HoldTimers[h.idx] := { fn: timerFn, interval: h.repeatInterval, active: true }
-                SetTimer(StartRepeat.Bind(h.idx, timerFn, h.repeatInterval), -h.repeatDelay)
+                timerFn := RepeatTimerCallback.Bind(sendKey, _srcKey, h.idx)
+                startFn := StartRepeat.Bind(h.idx, timerFn, h.repeatInterval)
+                HoldTimers[h.idx] := { fn: timerFn, startFn: startFn, interval: h.repeatInterval, active: true }
+                SetTimer(startFn, -h.repeatDelay)
             } else {
                 Send(KeyToSendFormat(h.targetKey))
             }
