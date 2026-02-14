@@ -124,6 +124,11 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
   - `HoldUpCallback`：同时取消 `startFn`（延迟启动定时器）和 `fn`（重复定时器）
 - 路径 A/B/C 的定时器创建逻辑同步更新
 
+### v2.1.2 — Bug 修复：带修饰前缀的 SourceKey 长按报错
+
+- **问题**：SourceKey 含修饰键前缀（如 `^+C` 表示 Ctrl+Shift+C）且启用长按连续触发时，`RepeatTimerCallback` 将 `^+C` 直接传入 `GetKeyState` 导致报错（`GetKeyState` 只接受纯按键名）
+- **修复**：在 `RepeatTimerCallback` 中用 `RegExReplace` 剥离 `^ + ! #` 修饰前缀后再调用 `GetKeyState`
+
 ## 文件架构
 
 ### AHKeyMap.ahk 模块划分（v2.0）

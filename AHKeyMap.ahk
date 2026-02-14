@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.1.1
+;@Ahk2Exe-SetVersion 2.1.2
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -1933,7 +1933,9 @@ StartRepeat(idx, timerFn, interval, *) {
 
 RepeatTimerCallback(sendKey, sourceKey, idx, *) {
     ; 安全检查：如果源按键已松开（非滚轮键），自动停止定时器
-    if (sourceKey != "" && !RegExMatch(sourceKey, "^Wheel") && !GetKeyState(sourceKey, "P")) {
+    ; 去除修饰键前缀（^ + ! #），GetKeyState 只接受纯按键名
+    baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
+    if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
         if HoldTimers.Has(idx) {
             if (HoldTimers[idx].HasProp("fn"))
                 SetTimer(HoldTimers[idx].fn, 0)
