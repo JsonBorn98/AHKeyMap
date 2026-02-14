@@ -2,6 +2,7 @@
 ; AHKeyMap - AHKv2 按键映射工具
 ; 支持多配置管理、多进程绑定、按键捕获、组合键映射、长按连续触发
 ; 支持自定义修饰键（含鼠标按键）、滚轮映射、状态追踪式组合键
+; 支持多配置同时生效、三态进程作用域（全局/仅指定/排除指定）
 ; ============================================================================
 #Requires AutoHotkey v2.0
 #SingleInstance Force
@@ -9,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 1.1.0
+;@Ahk2Exe-SetVersion 2.0.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -17,26 +18,36 @@ Persistent
 ; 全局变量
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "1.1"
+global APP_VERSION := "2.0"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
 
-; 当前状态
+; 多配置并存：所有已加载的配置
+; 每项为 Map: name, file, processMode, process, processList, excludeProcess, excludeProcessList, mappings, enabled, checker
+global AllConfigs := []
+
+; 当前 GUI 编辑的配置（仅用于界面显示/编辑）
 global CurrentConfigName := ""
 global CurrentConfigFile := ""
-global CurrentProcess := ""          ; 原始字符串 "a.exe|b.exe"
-global CurrentProcessList := []      ; 解析后的数组 ["a.exe", "b.exe"]
-global Mappings := []                ; 当前配置的映射数组，每项为 Map 对象
-global ActiveHotkeys := []           ; 当前已注册的热键列表
-global IsCapturing := false          ; 是否正在捕获按键
-global CaptureTarget := ""           ; 捕获目标："source" / "target" / "modifier"
-global CaptureCallback := ""         ; 捕获完成后的回调
+global CurrentProcessMode := "global"  ; "global" / "include" / "exclude"
+global CurrentProcess := ""            ; 原始字符串 "a.exe|b.exe"（include 模式）
+global CurrentProcessList := []        ; 解析后的数组 ["a.exe", "b.exe"]
+global CurrentExcludeProcess := ""     ; 原始字符串（exclude 模式）
+global CurrentExcludeProcessList := [] ; 解析后的数组
+global CurrentConfigEnabled := true    ; 当前配置是否启用
+global Mappings := []                  ; 当前配置的映射数组，每项为 Map 对象
+global ActiveHotkeys := []             ; 当前已注册的热键列表（全局，所有配置共享）
+global IsCapturing := false            ; 是否正在捕获按键
+global CaptureTarget := ""             ; 捕获目标："source" / "target" / "modifier"
+global CaptureCallback := ""           ; 捕获完成后的回调
 
 ; GUI 控件引用
 global MainGui := ""
 global ConfigDDL := ""
+global EnabledCB := ""               ; 启用/禁用复选框
 global ProcessText := ""
+global StatusText := ""              ; 状态栏：显示已启用配置数
 global MappingLV := ""
 global EditGui := ""
 global EditModifierEdit := ""
@@ -59,6 +70,7 @@ global PassthroughModKeys := Map()   ; 已注册的状态追踪式修饰键 Up �
 global InterceptModKeys := Map()     ; 已注册的拦截式修饰键恢复热键
 global PassthroughHandlers := Map()  ; 状态追踪式：sourceKey -> [{modKey, targetKey, holdRepeat, ...}]
 global PassthroughSourceRegistered := Map()  ; 已注册的状态追踪式 sourceKey 热键
+global AllProcessCheckers := []      ; 所有配置的 HotIf 闭包引用（防止被 GC）
 
 ; ============================================================================
 ; 启动入口
@@ -70,7 +82,7 @@ StartApp() {
     if !DirExist(CONFIG_DIR)
         DirCreate(CONFIG_DIR)
 
-    ; 加载上次使用的配置
+    ; 加载上次使用的配置（用于 GUI 显示）
     lastConfig := ""
     if FileExist(STATE_FILE)
         lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
@@ -78,11 +90,17 @@ StartApp() {
     ; 构建主界面
     BuildMainGui()
 
-    ; 加载配置列表
+    ; 加载所有配置到 AllConfigs 并注册已启用配置的热键
+    LoadAllConfigs()
+
+    ; 刷新配置下拉列表（仅 GUI 显示）
     RefreshConfigList(lastConfig)
 
+    ; 注册所有已启用配置的热键
+    ReloadAllHotkeys()
+
     ; 显示主窗口
-    MainGui.Show("w680 h480")
+    MainGui.Show("w720 h500")
 }
 
 ; ============================================================================
@@ -102,7 +120,104 @@ GetConfigList() {
     return configs
 }
 
-; 刷新配置下拉列表
+; 加载所有配置到 AllConfigs（启动时调用一次）
+LoadAllConfigs() {
+    global AllConfigs := []
+    configs := GetConfigList()
+    for _, name in configs {
+        cfg := LoadConfigData(name)
+        if (cfg != "")
+            AllConfigs.Push(cfg)
+    }
+}
+
+; 从 INI 文件加载一个配置的完整数据，返回 Map 对象
+LoadConfigData(configName) {
+    configFile := CONFIG_DIR "\" configName ".ini"
+    if !FileExist(configFile)
+        return ""
+
+    cfg := Map()
+    cfg["name"] := configName
+    cfg["file"] := configFile
+
+    ; 读取 Meta - 进程模式（向后兼容）
+    processMode := IniRead(configFile, "Meta", "ProcessMode", "")
+    process := IniRead(configFile, "Meta", "Process", "")
+    excludeProcess := IniRead(configFile, "Meta", "ExcludeProcess", "")
+
+    ; 向后兼容：旧配置无 ProcessMode 时自动推断
+    if (processMode = "") {
+        if (process != "")
+            processMode := "include"
+        else
+            processMode := "global"
+    }
+
+    cfg["processMode"] := processMode
+    cfg["process"] := process
+    cfg["processList"] := ParseProcessList(process)
+    cfg["excludeProcess"] := excludeProcess
+    cfg["excludeProcessList"] := ParseProcessList(excludeProcess)
+
+    ; 读取启用状态（从 _state.ini）
+    enabledVal := "1"
+    if FileExist(STATE_FILE)
+        enabledVal := IniRead(STATE_FILE, "EnabledConfigs", configName, "1")
+    cfg["enabled"] := (enabledVal = "1")
+
+    ; 读取映射
+    mappings := []
+    idx := 1
+    loop {
+        section := "Mapping" idx
+        sourceKey := IniRead(configFile, section, "SourceKey", "")
+        if (sourceKey = "")
+            break
+
+        mapping := Map()
+        mapping["ModifierKey"] := IniRead(configFile, section, "ModifierKey", "")
+        mapping["SourceKey"] := sourceKey
+        mapping["TargetKey"] := IniRead(configFile, section, "TargetKey", "")
+        mapping["HoldRepeat"] := Integer(IniRead(configFile, section, "HoldRepeat", "0"))
+        mapping["RepeatDelay"] := Integer(IniRead(configFile, section, "RepeatDelay", "300"))
+        mapping["RepeatInterval"] := Integer(IniRead(configFile, section, "RepeatInterval", "50"))
+        mapping["PassthroughMod"] := Integer(IniRead(configFile, section, "PassthroughMod", "0"))
+        mappings.Push(mapping)
+        idx++
+    }
+    cfg["mappings"] := mappings
+
+    return cfg
+}
+
+; 在 AllConfigs 中查找指定名称的配置，返回索引（0=未找到）
+FindConfigIndex(configName) {
+    for i, cfg in AllConfigs {
+        if (cfg["name"] = configName)
+            return i
+    }
+    return 0
+}
+
+; 同步当前 GUI 编辑状态到 AllConfigs
+SyncCurrentToAllConfigs() {
+    if (CurrentConfigName = "")
+        return
+    idx := FindConfigIndex(CurrentConfigName)
+    if (idx = 0)
+        return
+    cfg := AllConfigs[idx]
+    cfg["processMode"] := CurrentProcessMode
+    cfg["process"] := CurrentProcess
+    cfg["processList"] := CurrentProcessList
+    cfg["excludeProcess"] := CurrentExcludeProcess
+    cfg["excludeProcessList"] := CurrentExcludeProcessList
+    cfg["enabled"] := CurrentConfigEnabled
+    cfg["mappings"] := Mappings
+}
+
+; 刷新配置下拉列表（仅 GUI 显示，不影响热键）
 RefreshConfigList(selectName := "") {
     configs := GetConfigList()
     items := []
@@ -124,13 +239,19 @@ RefreshConfigList(selectName := "") {
     } else {
         global CurrentConfigName := ""
         global CurrentConfigFile := ""
+        global CurrentProcessMode := "global"
         global CurrentProcess := ""
         global CurrentProcessList := []
-        ProcessText.Value := "当前进程: 无配置"
+        global CurrentExcludeProcess := ""
+        global CurrentExcludeProcessList := []
+        global CurrentConfigEnabled := true
+        ProcessText.Value := "作用域: 无配置"
+        EnabledCB.Value := 0
+        EnabledCB.Enabled := false
         Mappings := []
         RefreshMappingLV()
-        UnregisterAllHotkeys()
     }
+    UpdateStatusText()
 }
 
 ; 解析进程字符串为数组
@@ -146,56 +267,71 @@ ParseProcessList(procStr) {
     return result
 }
 
-; 格式化进程列表为显示文本
-FormatProcessDisplay(procStr) {
-    if (procStr = "")
-        return "当前进程: 全局"
-    list := ParseProcessList(procStr)
-    if (list.Length = 0)
-        return "当前进程: 全局"
-    if (list.Length = 1)
-        return "当前进程: " list[1]
-    return "当前进程: " list[1] " 等" list.Length "个"
+; 格式化进程作用域为显示文本
+FormatProcessDisplay(processMode, process, excludeProcess) {
+    if (processMode = "include") {
+        list := ParseProcessList(process)
+        if (list.Length = 0)
+            return "作用域: 全局"
+        if (list.Length = 1)
+            return "作用域: 仅 " list[1]
+        return "作用域: 仅 " list[1] " 等" list.Length "个"
+    } else if (processMode = "exclude") {
+        list := ParseProcessList(excludeProcess)
+        if (list.Length = 0)
+            return "作用域: 全局"
+        if (list.Length = 1)
+            return "作用域: 排除 " list[1]
+        return "作用域: 排除 " list[1] " 等" list.Length "个"
+    }
+    return "作用域: 全局"
 }
 
-; 加载指定配置
-LoadConfig(configName) {
+; 更新状态栏文本
+UpdateStatusText() {
+    enabledCount := 0
+    totalCount := AllConfigs.Length
+    for _, cfg in AllConfigs {
+        if (cfg["enabled"])
+            enabledCount++
+    }
+    StatusText.Value := "已启用 " enabledCount "/" totalCount " 个配置"
+}
+
+; 加载指定配置到 GUI 编辑区域（不影响热键注册）
+LoadConfigToGui(configName) {
     global CurrentConfigName := configName
     global CurrentConfigFile := CONFIG_DIR "\" configName ".ini"
     global Mappings := []
 
-    if !FileExist(CurrentConfigFile)
+    idx := FindConfigIndex(configName)
+    if (idx = 0)
         return
 
-    ; 读取 Meta
-    global CurrentProcess := IniRead(CurrentConfigFile, "Meta", "Process", "")
-    global CurrentProcessList := ParseProcessList(CurrentProcess)
-    ProcessText.Value := FormatProcessDisplay(CurrentProcess)
+    cfg := AllConfigs[idx]
+    global CurrentProcessMode := cfg["processMode"]
+    global CurrentProcess := cfg["process"]
+    global CurrentProcessList := cfg["processList"]
+    global CurrentExcludeProcess := cfg["excludeProcess"]
+    global CurrentExcludeProcessList := cfg["excludeProcessList"]
+    global CurrentConfigEnabled := cfg["enabled"]
 
-    ; 读取映射
-    idx := 1
-    loop {
-        section := "Mapping" idx
-        sourceKey := IniRead(CurrentConfigFile, section, "SourceKey", "")
-        if (sourceKey = "")
-            break
-
-        mapping := Map()
-        mapping["ModifierKey"] := IniRead(CurrentConfigFile, section, "ModifierKey", "")
-        mapping["SourceKey"] := sourceKey
-        mapping["TargetKey"] := IniRead(CurrentConfigFile, section, "TargetKey", "")
-        mapping["HoldRepeat"] := Integer(IniRead(CurrentConfigFile, section, "HoldRepeat", "0"))
-        mapping["RepeatDelay"] := Integer(IniRead(CurrentConfigFile, section, "RepeatDelay", "300"))
-        mapping["RepeatInterval"] := Integer(IniRead(CurrentConfigFile, section, "RepeatInterval", "50"))
-        mapping["PassthroughMod"] := Integer(IniRead(CurrentConfigFile, section, "PassthroughMod", "0"))
-        Mappings.Push(mapping)
-        idx++
+    ; 复制映射数据到 GUI 编辑用的 Mappings
+    global Mappings := []
+    for _, m in cfg["mappings"] {
+        newM := Map()
+        for k, v in m
+            newM[k] := v
+        Mappings.Push(newM)
     }
 
-    RefreshMappingLV()
-    ReloadHotkeys()
+    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcess, CurrentExcludeProcess)
+    EnabledCB.Value := CurrentConfigEnabled
+    EnabledCB.Enabled := true
 
-    ; 保存最后使用的配置
+    RefreshMappingLV()
+
+    ; 保存最后查看的配置
     IniWrite(configName, STATE_FILE, "State", "LastConfig")
 }
 
@@ -209,7 +345,9 @@ SaveConfig() {
         FileDelete(CurrentConfigFile)
 
     IniWrite(CurrentConfigName, CurrentConfigFile, "Meta", "Name")
+    IniWrite(CurrentProcessMode, CurrentConfigFile, "Meta", "ProcessMode")
     IniWrite(CurrentProcess, CurrentConfigFile, "Meta", "Process")
+    IniWrite(CurrentExcludeProcess, CurrentConfigFile, "Meta", "ExcludeProcess")
 
     for idx, mapping in Mappings {
         section := "Mapping" idx
@@ -220,6 +358,17 @@ SaveConfig() {
         IniWrite(mapping["RepeatDelay"], CurrentConfigFile, section, "RepeatDelay")
         IniWrite(mapping["RepeatInterval"], CurrentConfigFile, section, "RepeatInterval")
         IniWrite(mapping["PassthroughMod"], CurrentConfigFile, section, "PassthroughMod")
+    }
+
+    ; 同步到 AllConfigs 并保存启用状态
+    SyncCurrentToAllConfigs()
+    SaveEnabledStates()
+}
+
+; 保存所有配置的启用状态到 _state.ini
+SaveEnabledStates() {
+    for _, cfg in AllConfigs {
+        IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
     }
 }
 
@@ -260,30 +409,37 @@ BuildMainGui() {
     MainGui.OnEvent("Close", OnMainClose)
     MainGui.OnEvent("Size", OnMainResize)
 
-    ; --- 配置管理栏 ---
-    MainGui.AddText("x10 y10 w60 h23 +0x200", "配置:")
-    global ConfigDDL := MainGui.AddDropDownList("x70 y10 w200 h200 vConfigDDL")
+    ; --- 配置管理栏（第一行） ---
+    MainGui.AddText("x10 y10 w40 h23 +0x200", "配置:")
+    global ConfigDDL := MainGui.AddDropDownList("x50 y10 w180 h200 vConfigDDL")
     ConfigDDL.OnEvent("Change", OnConfigSelect)
 
-    MainGui.AddButton("x280 y9 w60 h25", "新建").OnEvent("Click", OnNewConfig)
-    MainGui.AddButton("x345 y9 w60 h25", "删除").OnEvent("Click", OnDeleteConfig)
-    MainGui.AddButton("x410 y9 w80 h25", "修改进程").OnEvent("Click", OnChangeProcess)
+    global EnabledCB := MainGui.AddCheckbox("x235 y11 w50 h23", "启用")
+    EnabledCB.OnEvent("Click", OnToggleEnabled)
 
-    global ProcessText := MainGui.AddText("x500 y10 w170 h23 +0x200", "当前进程: 无配置")
+    MainGui.AddButton("x290 y9 w50 h25", "新建").OnEvent("Click", OnNewConfig)
+    MainGui.AddButton("x345 y9 w50 h25", "复制").OnEvent("Click", OnCopyConfig)
+    MainGui.AddButton("x400 y9 w50 h25", "删除").OnEvent("Click", OnDeleteConfig)
+    MainGui.AddButton("x455 y9 w70 h25", "作用域").OnEvent("Click", OnChangeProcess)
+
+    global ProcessText := MainGui.AddText("x530 y10 w180 h23 +0x200", "作用域: 无配置")
 
     ; --- 映射列表 ---
-    global MappingLV := MainGui.AddListView("x10 y45 w660 h350 +Grid -Multi", ["序号", "修饰键", "源按键", "映射目标", "长按连续", "修饰键模式", "触发延迟(ms)", "触发间隔(ms)"])
+    global MappingLV := MainGui.AddListView("x10 y45 w700 h360 +Grid -Multi", ["序号", "修饰键", "源按键", "映射目标", "长按连续", "修饰键模式", "触发延迟(ms)", "触发间隔(ms)"])
     MappingLV.OnEvent("DoubleClick", OnEditMapping)
 
     ; --- 操作按钮栏 ---
-    btnY := 405
+    btnY := 415
     MainGui.AddButton("x10 y" btnY " w80 h30", "新增映射").OnEvent("Click", OnAddMapping)
     MainGui.AddButton("x95 y" btnY " w80 h30", "编辑映射").OnEvent("Click", OnEditMapping)
     MainGui.AddButton("x180 y" btnY " w80 h30", "复制映射").OnEvent("Click", OnCopyMapping)
     MainGui.AddButton("x265 y" btnY " w80 h30", "删除映射").OnEvent("Click", OnDeleteMapping)
 
+    ; --- 状态栏 ---
+    global StatusText := MainGui.AddText("x360 y" btnY + 5 " w180 h23 +0x200 cGray", "已启用 0/0 个配置")
+
     ; --- 管理员提权按钮 ---
-    adminBtn := MainGui.AddButton("x560 y" btnY " w110 h30", "以管理员重启")
+    adminBtn := MainGui.AddButton("x600 y" btnY " w110 h30", "以管理员重启")
     adminBtn.OnEvent("Click", OnRunAsAdmin)
     if A_IsAdmin
         adminBtn.Enabled := false
@@ -306,7 +462,21 @@ BuildMainGui() {
 OnMainResize(thisGui, minMax, width, height) {
     if (minMax = -1)
         return
-    MappingLV.Move(,, width - 20, height - 130)
+    MappingLV.Move(,, width - 20, height - 140)
+}
+
+; 创建模态子窗口（禁用主窗口，子窗口关闭时自动恢复）
+CreateModalGui(title) {
+    modalGui := Gui("+Owner" MainGui.Hwnd " +ToolWindow", title)
+    MainGui.Opt("+Disabled")
+    modalGui.OnEvent("Close", (*) => DestroyModalGui(modalGui))
+    return modalGui
+}
+
+; 销毁模态子窗口并恢复主窗口
+DestroyModalGui(modalGui) {
+    MainGui.Opt("-Disabled")
+    modalGui.Destroy()
 }
 
 ; ============================================================================
@@ -316,34 +486,56 @@ OnMainResize(thisGui, minMax, width, height) {
 OnConfigSelect(ctrl, *) {
     selected := ctrl.Text
     if (selected != "" && selected != CurrentConfigName) {
-        UnregisterAllHotkeys()
-        LoadConfig(selected)
+        LoadConfigToGui(selected)
     } else if (selected != "" && CurrentConfigName = "") {
-        LoadConfig(selected)
+        LoadConfigToGui(selected)
     }
 }
 
+; 启用/禁用复选框
+OnToggleEnabled(ctrl, *) {
+    if (CurrentConfigName = "")
+        return
+    global CurrentConfigEnabled := ctrl.Value ? true : false
+    SyncCurrentToAllConfigs()
+    SaveEnabledStates()
+    ReloadAllHotkeys()
+    UpdateStatusText()
+}
+
 OnNewConfig(*) {
-    newGui := Gui("+Owner" MainGui.Hwnd " +ToolWindow", "新建配置")
+    newGui := CreateModalGui("新建配置")
     newGui.SetFont("s9", "Microsoft YaHei UI")
 
     newGui.AddText("x10 y10 w80 h23 +0x200", "配置名称:")
     nameEdit := newGui.AddEdit("x90 y10 w250 h23 vConfigName")
 
-    newGui.AddText("x10 y45 w80 h23 +0x200", "绑定进程:")
-    newGui.AddText("x10 y68 w330 h18 cGray", "（每行一个进程名，留空则全局生效）")
-    procEdit := newGui.AddEdit("x90 y45 w200 h23 vProcName")
-    newGui.AddButton("x295 y44 w45 h25", "选择").OnEvent("Click", (*) => ShowProcessPicker(procEdit))
+    ; 三态进程模式
+    newGui.AddGroupBox("x10 y42 w330 h175", "作用域")
+    globalRadio := newGui.AddRadio("x20 y62 w310 h20 vProcessMode Checked", "全局生效")
+    includeRadio := newGui.AddRadio("x20 y85 w310 h20", "仅指定进程生效")
+    excludeRadio := newGui.AddRadio("x20 y108 w310 h20", "排除指定进程")
 
-    newGui.AddButton("x110 y100 w80 h28", "确定").OnEvent("Click", OnNewConfigOK.Bind(newGui))
-    newGui.AddButton("x200 y100 w80 h28", "取消").OnEvent("Click", (*) => newGui.Destroy())
+    newGui.AddText("x20 y133 w60 h23 +0x200", "进程列表:")
+    procEdit := newGui.AddEdit("x85 y133 w195 h70 vProcName Multi")
+    procEdit.Enabled := false
+    procPickBtn := newGui.AddButton("x285 y133 w45 h25", "选择")
+    procPickBtn.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
+    procPickBtn.Enabled := false
 
-    newGui.Show("w350 h140")
+    ; 单选按钮切换时启用/禁用进程编辑
+    globalRadio.OnEvent("Click", (*) => (procEdit.Enabled := false, procPickBtn.Enabled := false))
+    includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
+    excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
+
+    newGui.AddButton("x100 y225 w80 h28", "确定").OnEvent("Click", OnNewConfigOK.Bind(newGui))
+    newGui.AddButton("x190 y225 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(newGui))
+
+    newGui.Show("w350 h265")
 }
 
 OnNewConfigOK(newGui, *) {
     configName := Trim(newGui["ConfigName"].Value)
-    procName := Trim(newGui["ProcName"].Value)
 
     if (configName = "") {
         MsgBox("请输入配置名称", APP_NAME, "Icon!")
@@ -356,55 +548,16 @@ OnNewConfigOK(newGui, *) {
         return
     }
 
-    IniWrite(configName, configFile, "Meta", "Name")
-    IniWrite(procName, configFile, "Meta", "Process")
+    ; 确定进程模式
+    processMode := "global"
+    submitted := newGui.Submit(false)
+    if (submitted.ProcessMode = 2)
+        processMode := "include"
+    else if (submitted.ProcessMode = 3)
+        processMode := "exclude"
 
-    newGui.Destroy()
-    RefreshConfigList(configName)
-}
-
-OnDeleteConfig(*) {
-    if (CurrentConfigName = "") {
-        MsgBox("没有选中的配置", APP_NAME, "Icon!")
-        return
-    }
-
-    result := MsgBox("确定要删除配置 '" CurrentConfigName "' 吗？", APP_NAME, "YesNo Icon?")
-    if (result = "Yes") {
-        UnregisterAllHotkeys()
-        if FileExist(CurrentConfigFile)
-            FileDelete(CurrentConfigFile)
-        global CurrentConfigName := ""
-        global CurrentConfigFile := ""
-        global Mappings := []
-        RefreshConfigList()
-    }
-}
-
-OnChangeProcess(*) {
-    if (CurrentConfigName = "") {
-        MsgBox("没有选中的配置", APP_NAME, "Icon!")
-        return
-    }
-
-    changeGui := Gui("+Owner" MainGui.Hwnd " +ToolWindow", "修改绑定进程")
-    changeGui.SetFont("s9", "Microsoft YaHei UI")
-
-    changeGui.AddText("x10 y10 w330 h20", "绑定进程（每行一个进程名，留空则全局生效）:")
-    ; 将 | 分隔转为换行显示
-    displayProc := StrReplace(CurrentProcess, "|", "`n")
-    procEdit := changeGui.AddEdit("x10 y35 w270 h100 vProcName Multi", displayProc)
-    changeGui.AddButton("x285 y35 w55 h25", "选择").OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
-
-    changeGui.AddButton("x80 y145 w80 h28", "确定").OnEvent("Click", OnChangeProcessOK.Bind(changeGui))
-    changeGui.AddButton("x170 y145 w80 h28", "取消").OnEvent("Click", (*) => changeGui.Destroy())
-
-    changeGui.Show("w350 h185")
-}
-
-OnChangeProcessOK(changeGui, *) {
-    rawText := changeGui["ProcName"].Value
-    ; 将换行转为 | 分隔
+    ; 解析进程列表
+    rawText := newGui["ProcName"].Value
     procStr := ""
     loop parse rawText, "`n", "`r" {
         trimmed := Trim(A_LoopField)
@@ -415,12 +568,202 @@ OnChangeProcessOK(changeGui, *) {
         }
     }
 
-    global CurrentProcess := procStr
-    global CurrentProcessList := ParseProcessList(procStr)
-    ProcessText.Value := FormatProcessDisplay(procStr)
+    IniWrite(configName, configFile, "Meta", "Name")
+    IniWrite(processMode, configFile, "Meta", "ProcessMode")
+    if (processMode = "include") {
+        IniWrite(procStr, configFile, "Meta", "Process")
+        IniWrite("", configFile, "Meta", "ExcludeProcess")
+    } else if (processMode = "exclude") {
+        IniWrite("", configFile, "Meta", "Process")
+        IniWrite(procStr, configFile, "Meta", "ExcludeProcess")
+    } else {
+        IniWrite("", configFile, "Meta", "Process")
+        IniWrite("", configFile, "Meta", "ExcludeProcess")
+    }
+
+    ; 默认启用新配置
+    IniWrite("1", STATE_FILE, "EnabledConfigs", configName)
+
+    DestroyModalGui(newGui)
+
+    ; 重新加载所有配置
+    LoadAllConfigs()
+    RefreshConfigList(configName)
+    ReloadAllHotkeys()
+}
+
+; 复制配置
+OnCopyConfig(*) {
+    if (CurrentConfigName = "") {
+        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        return
+    }
+
+    copyGui := CreateModalGui("复制配置")
+    copyGui.SetFont("s9", "Microsoft YaHei UI")
+
+    copyGui.AddText("x10 y10 w80 h23 +0x200", "新名称:")
+    defaultName := CurrentConfigName "_copy"
+    nameEdit := copyGui.AddEdit("x90 y10 w250 h23 vNewName", defaultName)
+
+    copyGui.AddButton("x110 y48 w80 h28", "确定").OnEvent("Click", OnCopyConfigOK.Bind(copyGui))
+    copyGui.AddButton("x200 y48 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(copyGui))
+
+    copyGui.Show("w350 h88")
+}
+
+OnCopyConfigOK(copyGui, *) {
+    newName := Trim(copyGui["NewName"].Value)
+
+    if (newName = "") {
+        MsgBox("请输入配置名称", APP_NAME, "Icon!")
+        return
+    }
+
+    newFile := CONFIG_DIR "\" newName ".ini"
+    if FileExist(newFile) {
+        MsgBox("配置 '" newName "' 已存在", APP_NAME, "Icon!")
+        return
+    }
+
+    ; 复制当前配置文件
+    if FileExist(CurrentConfigFile)
+        FileCopy(CurrentConfigFile, newFile)
+
+    ; 修改副本中的 Name
+    IniWrite(newName, newFile, "Meta", "Name")
+
+    ; 默认启用
+    IniWrite("1", STATE_FILE, "EnabledConfigs", newName)
+
+    DestroyModalGui(copyGui)
+
+    ; 重新加载所有配置
+    LoadAllConfigs()
+    RefreshConfigList(newName)
+    ReloadAllHotkeys()
+}
+
+OnDeleteConfig(*) {
+    if (CurrentConfigName = "") {
+        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        return
+    }
+
+    result := MsgBox("确定要删除配置 '" CurrentConfigName "' 吗？", APP_NAME, "YesNo Icon?")
+    if (result = "Yes") {
+        if FileExist(CurrentConfigFile)
+            FileDelete(CurrentConfigFile)
+
+        ; 从 AllConfigs 中移除
+        idx := FindConfigIndex(CurrentConfigName)
+        if (idx > 0)
+            AllConfigs.RemoveAt(idx)
+
+        global CurrentConfigName := ""
+        global CurrentConfigFile := ""
+        global Mappings := []
+
+        ReloadAllHotkeys()
+        RefreshConfigList()
+    }
+}
+
+OnChangeProcess(*) {
+    if (CurrentConfigName = "") {
+        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        return
+    }
+
+    changeGui := CreateModalGui("修改作用域")
+    changeGui.SetFont("s9", "Microsoft YaHei UI")
+
+    ; 三态单选
+    changeGui.AddGroupBox("x10 y5 w370 h210", "作用域模式")
+    globalRadio := changeGui.AddRadio("x20 y25 w350 h20 vProcessMode", "全局生效")
+    includeRadio := changeGui.AddRadio("x20 y48 w350 h20", "仅指定进程生效")
+    excludeRadio := changeGui.AddRadio("x20 y71 w350 h20", "排除指定进程")
+
+    ; 根据当前模式选中
+    if (CurrentProcessMode = "include")
+        includeRadio.Value := 1
+    else if (CurrentProcessMode = "exclude")
+        excludeRadio.Value := 1
+    else
+        globalRadio.Value := 1
+
+    changeGui.AddText("x20 y98 w60 h23 +0x200", "进程列表:")
+    changeGui.AddText("x20 y120 w350 h16 cGray", "（每行一个进程名）")
+
+    ; 根据模式显示对应的进程列表
+    displayProc := ""
+    if (CurrentProcessMode = "include")
+        displayProc := StrReplace(CurrentProcess, "|", "`n")
+    else if (CurrentProcessMode = "exclude")
+        displayProc := StrReplace(CurrentExcludeProcess, "|", "`n")
+
+    procEdit := changeGui.AddEdit("x20 y138 w290 h65 vProcName Multi", displayProc)
+    procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25", "选择")
+    procPickBtn2.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
+
+    ; 全局模式下禁用进程编辑
+    isGlobal := (CurrentProcessMode = "global")
+    procEdit.Enabled := !isGlobal
+    procPickBtn2.Enabled := !isGlobal
+
+    globalRadio.OnEvent("Click", (*) => (procEdit.Enabled := false, procPickBtn2.Enabled := false))
+    includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
+    excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
+
+    changeGui.AddButton("x100 y222 w80 h28", "确定").OnEvent("Click", OnChangeProcessOK.Bind(changeGui))
+    changeGui.AddButton("x200 y222 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(changeGui))
+
+    changeGui.Show("w390 h260")
+}
+
+OnChangeProcessOK(changeGui, *) {
+    ; 确定进程模式
+    submitted := changeGui.Submit(false)
+    processMode := "global"
+    if (submitted.ProcessMode = 2)
+        processMode := "include"
+    else if (submitted.ProcessMode = 3)
+        processMode := "exclude"
+
+    ; 解析进程列表
+    rawText := changeGui["ProcName"].Value
+    procStr := ""
+    loop parse rawText, "`n", "`r" {
+        trimmed := Trim(A_LoopField)
+        if (trimmed != "") {
+            if (procStr != "")
+                procStr .= "|"
+            procStr .= trimmed
+        }
+    }
+
+    global CurrentProcessMode := processMode
+    if (processMode = "include") {
+        global CurrentProcess := procStr
+        global CurrentProcessList := ParseProcessList(procStr)
+        global CurrentExcludeProcess := ""
+        global CurrentExcludeProcessList := []
+    } else if (processMode = "exclude") {
+        global CurrentProcess := ""
+        global CurrentProcessList := []
+        global CurrentExcludeProcess := procStr
+        global CurrentExcludeProcessList := ParseProcessList(procStr)
+    } else {
+        global CurrentProcess := ""
+        global CurrentProcessList := []
+        global CurrentExcludeProcess := ""
+        global CurrentExcludeProcessList := []
+    }
+
+    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcess, CurrentExcludeProcess)
 
     SaveConfig()
-    ReloadHotkeys()
+    ReloadAllHotkeys()
     changeGui.Destroy()
 }
 
@@ -478,7 +821,7 @@ OnCopyMapping(*) {
 
     SaveConfig()
     RefreshMappingLV()
-    ReloadHotkeys()
+    ReloadAllHotkeys()
 
     newIdx := Mappings.Length
     MappingLV.Modify(newIdx, "Select Focus Vis")
@@ -503,7 +846,7 @@ OnDeleteMapping(*) {
         Mappings.RemoveAt(rowNum)
         SaveConfig()
         RefreshMappingLV()
-        ReloadHotkeys()
+        ReloadAllHotkeys()
     }
 }
 
@@ -630,7 +973,7 @@ OnEditMappingOK(*) {
 
     SaveConfig()
     RefreshMappingLV()
-    ReloadHotkeys()
+    ReloadAllHotkeys()
     EditGui.Destroy()
 }
 
@@ -1251,27 +1594,52 @@ GetRunningProcesses() {
 ; 热键引擎
 ; ============================================================================
 
-; 检查当前窗口是否匹配进程列表
-CheckProcessMatch(*) {
-    if (CurrentProcessList.Length = 0)
-        return true
-    for procName in CurrentProcessList {
+; 创建进程匹配闭包工厂函数
+; 根据配置的 processMode 返回对应的 HotIf 条件函数
+MakeProcessChecker(cfg) {
+    mode := cfg["processMode"]
+    if (mode = "include") {
+        procList := cfg["processList"]
+        return (*) => CheckIncludeMatch(procList)
+    } else if (mode = "exclude") {
+        exclList := cfg["excludeProcessList"]
+        return (*) => CheckExcludeMatch(exclList)
+    }
+    ; global 模式不需要 HotIf 条件
+    return ""
+}
+
+; include 模式：前台窗口匹配任一进程时返回 true
+CheckIncludeMatch(procList) {
+    for procName in procList {
         if WinActive("ahk_exe " procName)
             return true
     }
     return false
 }
 
+; exclude 模式：前台窗口不在排除列表中时返回 true
+CheckExcludeMatch(exclList) {
+    try {
+        fgProc := WinGetProcessName("A")
+        for procName in exclList {
+            if (fgProc = procName)
+                return false
+        }
+    }
+    return true
+}
+
 ; 卸载所有当前热键
 UnregisterAllHotkeys() {
-    ; 先清理状态追踪式修饰键的 OnMessage 钩子
+    ; 先清理状态追踪式修饰键
     CleanupPassthroughModKeys()
 
     ; 卸载所有已注册的热键
     for _, hk in ActiveHotkeys {
         try {
-            if (hk.Has("useHotIf") && hk["useHotIf"])
-                HotIf(CheckProcessMatch)
+            if (hk.Has("checker") && hk["checker"] != "")
+                HotIf(hk["checker"])
             else
                 HotIf()
 
@@ -1288,48 +1656,89 @@ UnregisterAllHotkeys() {
     global PassthroughHandlers := Map()
     global PassthroughSourceRegistered := Map()
     global HoldTimers := Map()
+    global AllProcessCheckers := []
 }
 
-; 重新加载热键
-ReloadHotkeys() {
+; 重新加载所有已启用配置的热键
+ReloadAllHotkeys() {
     UnregisterAllHotkeys()
 
-    if (Mappings.Length = 0)
+    ; 按优先级排序：include > exclude > global
+    ; 收集各类配置
+    includeConfigs := []
+    excludeConfigs := []
+    globalConfigs := []
+
+    for _, cfg in AllConfigs {
+        if (!cfg["enabled"])
+            continue
+        if (cfg["mappings"].Length = 0)
+            continue
+
+        mode := cfg["processMode"]
+        if (mode = "include")
+            includeConfigs.Push(cfg)
+        else if (mode = "exclude")
+            excludeConfigs.Push(cfg)
+        else
+            globalConfigs.Push(cfg)
+    }
+
+    ; 按优先级注册：include 最先（最具体），global 最后
+    for _, cfg in includeConfigs
+        RegisterConfigHotkeys(cfg)
+    for _, cfg in excludeConfigs
+        RegisterConfigHotkeys(cfg)
+    for _, cfg in globalConfigs
+        RegisterConfigHotkeys(cfg)
+
+    HotIf()
+}
+
+; 为单个配置注册所有热键
+RegisterConfigHotkeys(cfg) {
+    mappings := cfg["mappings"]
+    if (mappings.Length = 0)
         return
 
-    ; 设置 HotIf 条件
-    useCustomHotIf := CurrentProcessList.Length > 0
+    ; 创建该配置的进程匹配闭包
+    checker := MakeProcessChecker(cfg)
+    ; 保持引用防止 GC
+    if (checker != "")
+        AllProcessCheckers.Push(checker)
+
+    useCustomHotIf := (checker != "")
 
     ; 第一遍：收集状态追踪式映射，按 sourceKey 分组
-    for idx, mapping in Mappings {
+    for idx, mapping in mappings {
         modKey := mapping["ModifierKey"]
         if (modKey = "" || !mapping["PassthroughMod"])
             continue
 
         srcKey := mapping["SourceKey"]
-        if !PassthroughHandlers.Has(srcKey)
-            PassthroughHandlers[srcKey] := []
+        ; 使用配置名+sourceKey 作为键，避免跨配置冲突
+        groupKey := cfg["name"] "|" srcKey
+        if !PassthroughHandlers.Has(groupKey)
+            PassthroughHandlers[groupKey] := []
 
-        PassthroughHandlers[srcKey].Push({
+        PassthroughHandlers[groupKey].Push({
             modKey: modKey,
             targetKey: mapping["TargetKey"],
             holdRepeat: mapping["HoldRepeat"],
             repeatDelay: mapping["RepeatDelay"],
             repeatInterval: mapping["RepeatInterval"],
-            idx: idx
+            idx: cfg["name"] "|" idx
         })
     }
 
     ; 第二遍：注册所有热键
-    for idx, mapping in Mappings {
-        RegisterMapping(mapping, useCustomHotIf, idx)
+    for idx, mapping in mappings {
+        RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
     }
-
-    HotIf()
 }
 
 ; 注册单个映射
-RegisterMapping(mapping, useCustomHotIf, idx) {
+RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
     modKey := mapping["ModifierKey"]
     sourceKey := mapping["SourceKey"]
     targetKey := mapping["TargetKey"]
@@ -1340,20 +1749,20 @@ RegisterMapping(mapping, useCustomHotIf, idx) {
 
     ; 设置 HotIf 条件
     if (useCustomHotIf)
-        HotIf(CheckProcessMatch)
+        HotIf(checker)
     else
         HotIf()
 
     hkInfo := Map()
-    hkInfo["useHotIf"] := useCustomHotIf
+    hkInfo["checker"] := checker
 
     if (modKey = "") {
-        ; ===== 路径 A：无修饰键，现有逻辑 =====
+        ; ===== 路径 A：无修饰键 =====
         hkInfo["key"] := sourceKey
 
         if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, idx)
-            upCb := HoldUpCallback.Bind(idx)
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx)
+            upCb := HoldUpCallback.Bind(uniqueIdx)
             try {
                 Hotkey(sourceKey, downCb, "On")
                 Hotkey(sourceKey " Up", upCb, "On")
@@ -1370,11 +1779,10 @@ RegisterMapping(mapping, useCustomHotIf, idx) {
         hkInfo["key"] := comboKey
 
         if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, idx)
-            upCb := HoldUpCallback.Bind(idx)
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx)
+            upCb := HoldUpCallback.Bind(uniqueIdx)
             try {
                 Hotkey(comboKey, downCb, "On")
-                ; 组合热键的 Up 事件格式
                 Hotkey(comboKey " Up", upCb, "On")
                 hkInfo["keyUp"] := comboKey " Up"
             }
@@ -1383,40 +1791,40 @@ RegisterMapping(mapping, useCustomHotIf, idx) {
             try Hotkey(comboKey, sendCb, "On")
         }
 
-        ; 注册修饰键恢复（只注册一次）
-        if !InterceptModKeys.Has(modKey) {
+        ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
+        modRegKey := (checker != "" ? configName : "") "|" modKey
+        if !InterceptModKeys.Has(modRegKey) {
             try {
                 restoreCb := RestoreModKeyCallback.Bind(modKey)
                 Hotkey(modKey, restoreCb, "On")
-                ; 记录用于卸载
                 modHkInfo := Map()
                 modHkInfo["key"] := modKey
-                modHkInfo["useHotIf"] := useCustomHotIf
+                modHkInfo["checker"] := checker
                 ActiveHotkeys.Push(modHkInfo)
-                InterceptModKeys[modKey] := true
+                InterceptModKeys[modRegKey] := true
             }
         }
 
     } else {
         ; ===== 路径 C：状态追踪式 =====
-        ; 由 PassthroughHandlers 分组处理，同一个 sourceKey 只注册一次
-        if !PassthroughSourceRegistered.Has(sourceKey) {
+        groupKey := configName "|" sourceKey
+        srcRegKey := (checker != "" ? configName : "") "|" sourceKey
+        if !PassthroughSourceRegistered.Has(srcRegKey) {
             hkInfo["key"] := sourceKey
 
-            ; 注册 sourceKey 的统一处理器
-            handler := PassthroughSourceHandler.Bind(sourceKey)
+            handler := PassthroughSourceHandler.Bind(groupKey)
             try Hotkey(sourceKey, handler, "On")
 
-            PassthroughSourceRegistered[sourceKey] := true
+            PassthroughSourceRegistered[srcRegKey] := true
         } else {
-            ; 已注册过，不重复注册，但仍需记录用于卸载
             hkInfo["key"] := sourceKey
         }
 
-        ; 注册修饰键状态追踪（只注册一次）
-        if !PassthroughModKeys.Has(modKey) {
-            SetupPassthroughModKey(modKey)
-            PassthroughModKeys[modKey] := true
+        ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
+        modRegKey := (checker != "" ? configName : "") "|" modKey
+        if !PassthroughModKeys.Has(modRegKey) {
+            SetupPassthroughModKey(modKey, checker)
+            PassthroughModKeys[modRegKey] := true
         }
     }
 
@@ -1424,9 +1832,7 @@ RegisterMapping(mapping, useCustomHotIf, idx) {
 }
 
 ; 设置状态追踪式修饰键的按下/松开监控
-; 使用 ~ 前缀让物理按键事件正常传递（保留手势等原始功能）
-; 同时追踪是否触发过组合，在松开时处理副作用
-SetupPassthroughModKey(modKey) {
+SetupPassthroughModKey(modKey, checker := "") {
     ComboFiredState[modKey] := false
 
     downCb := PassthroughModDown.Bind(modKey)
@@ -1435,24 +1841,21 @@ SetupPassthroughModKey(modKey) {
         Hotkey("~" modKey, downCb, "On")
         Hotkey("~" modKey " Up", upCb, "On")
     }
+
+    ; 记录用于卸载
+    modHkInfo := Map()
+    modHkInfo["key"] := "~" modKey
+    modHkInfo["keyUp"] := "~" modKey " Up"
+    modHkInfo["checker"] := checker
+    ActiveHotkeys.Push(modHkInfo)
 }
 
 ; 清理状态追踪式修饰键的监控
 CleanupPassthroughModKeys() {
-    ; 需要在正确的 HotIf 条件下关闭热键
-    if (CurrentProcessList.Length > 0)
-        HotIf(CheckProcessMatch)
-    else
-        HotIf()
-
-    for modKey, _ in PassthroughModKeys {
-        try {
-            Hotkey("~" modKey, "Off")
-            Hotkey("~" modKey " Up", "Off")
-        }
-    }
-
-    HotIf()
+    ; 通过 ActiveHotkeys 中记录的 checker 来正确卸载
+    ; （在 UnregisterAllHotkeys 的主循环中统一处理）
+    ; 这里只重置状态
+    global PassthroughModKeys := Map()
 }
 
 ; 修饰键按下：初始化组合触发状态
@@ -1518,14 +1921,17 @@ RestoreModKeyCallback(modKey, *) {
 ; ===== 路径 C 回调（状态追踪式）=====
 
 ; sourceKey 的统一处理器：检查所有关联的修饰键
-PassthroughSourceHandler(sourceKey, *) {
-    if !PassthroughHandlers.Has(sourceKey) {
-        ; 没有关联的组合映射，转发原始事件
+; groupKey 格式为 "configName|sourceKey"
+PassthroughSourceHandler(groupKey, *) {
+    if !PassthroughHandlers.Has(groupKey) {
+        ; 没有关联的组合映射，从 groupKey 提取 sourceKey 转发
+        parts := StrSplit(groupKey, "|",, 2)
+        sourceKey := parts.Length >= 2 ? parts[2] : groupKey
         Send(KeyToSendFormat(sourceKey))
         return
     }
 
-    handlers := PassthroughHandlers[sourceKey]
+    handlers := PassthroughHandlers[groupKey]
     for _, h in handlers {
         if GetKeyState(h.modKey, "P") {
             ; 修饰键按住，触发组合
@@ -1545,7 +1951,9 @@ PassthroughSourceHandler(sourceKey, *) {
         }
     }
 
-    ; 没有任何修饰键按住，转发原始事件
+    ; 没有任何修饰键按住，从 groupKey 提取 sourceKey 转发
+    parts := StrSplit(groupKey, "|",, 2)
+    sourceKey := parts.Length >= 2 ? parts[2] : groupKey
     Send(KeyToSendFormat(sourceKey))
 }
 

@@ -7,8 +7,10 @@
 AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采用**单文件架构**（`AHKeyMap.ahk`），使用 AHKv2 原生 `Gui` 构建界面，INI 格式保存配置。
 
 核心能力：
-- 多配置管理（新建/切换/删除）
-- 多进程绑定（配置仅在指定前台进程下生效，支持多进程 `|` 分隔）
+- 多配置管理（新建/复制/切换/删除）
+- **多配置同时生效**：所有已启用配置的热键同时加载，根据前台窗口自动切换
+- **三态进程作用域**：全局生效 / 仅指定进程 / 排除指定进程
+- 多进程绑定（配置支持多进程 `|` 分隔）
 - 自定义修饰键 + 源按键 -> 映射目标的组合键映射
 - 长按连续触发（可配置延迟和间隔）
 - 三种热键引擎路径（无修饰键 / 拦截式组合 / 状态追踪式组合）
@@ -55,24 +57,58 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - 新增"保留修饰键原始功能"复选框（仅修饰键非空时可用）
 - ListView 增加"修饰键"和"修饰键模式"列
 
+### v2.0 — 多配置并行生效 + 三态进程作用域
+
+**核心架构变更：**
+- 从"单配置激活"改为"多配置同时生效"：所有已启用配置的热键同时加载
+- 新增 `AllConfigs` 全局数组，存储所有配置的完整数据
+- 配置切换仅影响 GUI 显示，不再卸载/重载热键
+- 热键引擎遍历所有已启用配置，每个配置使用独立的 `HotIf` 闭包条件
+
+**三态进程作用域（互斥）：**
+- `global`：全局生效，无条件匹配
+- `include`：仅指定进程前台时生效（原有功能）
+- `exclude`：排除指定进程，其余情况生效（新增）
+- INI 新增 `ProcessMode` 和 `ExcludeProcess` 字段，向后兼容旧配置
+
+**配置管理增强：**
+- 新增配置复制功能（默认名 `原名_copy`，可改名）
+- 新增启用/禁用复选框，控制配置是否参与热键注册
+- `_state.ini` 新增 `[EnabledConfigs]` section 持久化各配置启用状态
+- 状态栏显示已启用配置数量
+
+**热键引擎重构：**
+- `MakeProcessChecker(cfg)` 工厂函数：根据配置的 `processMode` 创建独立闭包
+- `ReloadAllHotkeys()` 遍历所有已启用配置，按优先级注册（include > exclude > global）
+- `RegisterConfigHotkeys(cfg)` 为单个配置注册所有热键
+- `PassthroughHandlers` 使用 `configName|sourceKey` 作为分组键，避免跨配置冲突
+- `AllProcessCheckers` 数组持有闭包引用，防止被 GC 回收
+
+**GUI 改动：**
+- 主窗口配置栏：新增"启用"复选框、"复制"按钮、"作用域"按钮（替代"修改进程"）
+- 新建配置对话框：三态单选按钮 + 进程列表编辑
+- 修改作用域对话框：三态单选按钮 + 进程列表编辑
+- 进程显示文本根据模式显示不同文案（全局 / 仅 xxx / 排除 xxx）
+- 状态栏显示"已启用 N/M 个配置"
+
 ## 文件架构
 
-### AHKeyMap.ahk 模块划分
+### AHKeyMap.ahk 模块划分（v2.0）
 
-| 行范围（约） | 模块 | 说明 |
-|---|---|---|
-| 1-62 | 头部 + 全局变量 | 编译指令、全局状态、GUI 控件引用 |
-| 63-87 | 启动入口 | `StartApp()` 初始化 |
-| 88-249 | 配置管理 | `LoadConfig` / `SaveConfig` / `RefreshMappingLV` / 进程解析 |
-| 250-314 | GUI 构建 | `BuildMainGui()` 主窗口布局 |
-| 314-429 | 配置管理事件 | 新建/删除配置、修改进程对话框 |
-| 429-512 | 映射管理事件 | 新增/编辑/复制/删除映射 |
-| 512-636 | 映射编辑弹窗 | `ShowEditMappingGui()` + 控件事件 |
-| 637-1074 | 按键捕获 | 轮询机制、鼠标钩子、`FinishCapture` / `CancelCapture` |
-| 1075-1137 | 按键格式转换 | `KeyToDisplay` / `KeyToSendFormat` / `FormatKeyName` |
-| 1138-1249 | 进程选择器 | `ShowProcessPicker` / `GetRunningProcesses` |
-| 1250-1552 | 热键引擎 | `RegisterMapping`（三条路径）、回调函数、修饰键监控 |
-| 1553-1582 | 托盘和窗口事件 | 关闭/显示/退出/提权 |
+| 模块 | 说明 |
+|---|---|
+| 头部 + 全局变量 | 编译指令、全局状态（`AllConfigs`、`CurrentXxx` GUI 编辑状态）、GUI 控件引用 |
+| 启动入口 | `StartApp()` → `LoadAllConfigs()` → `BuildMainGui()` → `ReloadAllHotkeys()` |
+| 配置管理 | `LoadAllConfigs` / `LoadConfigData` / `LoadConfigToGui` / `SaveConfig` / `SyncCurrentToAllConfigs` / `SaveEnabledStates` |
+| GUI 构建 | `BuildMainGui()` 主窗口布局（含启用复选框、复制按钮、作用域按钮、状态栏） |
+| 配置管理事件 | 新建/复制/删除配置、修改作用域对话框（三态模式）、启用/禁用切换 |
+| 映射管理事件 | 新增/编辑/复制/删除映射 |
+| 映射编辑弹窗 | `ShowEditMappingGui()` + 控件事件 |
+| 按键捕获 | 轮询机制、鼠标钩子、`FinishCapture` / `CancelCapture` |
+| 按键格式转换 | `KeyToDisplay` / `KeyToSendFormat` / `FormatKeyName` |
+| 进程选择器 | `ShowProcessPicker` / `GetRunningProcesses` |
+| 热键引擎 | `MakeProcessChecker` / `ReloadAllHotkeys` / `RegisterConfigHotkeys` / `RegisterMapping`（三条路径）、回调函数、修饰键监控 |
+| 托盘和窗口事件 | 关闭/显示/退出/提权 |
 
 ### 其他文件
 
@@ -85,10 +121,14 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 
 ## 配置文件格式
 
+### INI 配置（v2.0）
+
 ```ini
 [Meta]
 Name=浏览器标签切换
+ProcessMode=include
 Process=msedge.exe|chrome.exe|firefox.exe
+ExcludeProcess=
 
 [Mapping1]
 ModifierKey=RButton
@@ -107,6 +147,24 @@ HoldRepeat=0
 RepeatDelay=300
 RepeatInterval=50
 PassthroughMod=1
+```
+
+**Meta 字段说明：**
+- `ProcessMode`：`global`（全局生效）/ `include`（仅指定进程）/ `exclude`（排除指定进程），三选一
+- `Process`：仅 `include` 模式使用，`|` 分隔的进程名列表
+- `ExcludeProcess`：仅 `exclude` 模式使用，`|` 分隔的排除进程名列表
+- **向后兼容**：旧配置无 `ProcessMode` 时，`Process` 非空推断为 `include`，为空推断为 `global`
+
+### 状态文件（`_state.ini`）
+
+```ini
+[State]
+LastConfig=浏览器标签切换
+
+[EnabledConfigs]
+全局快捷键=1
+浏览器标签切换=1
+PS专用=0
 ```
 
 ## 热键引擎详解
@@ -133,8 +191,10 @@ ModifierKey 非空 + PassthroughMod=1？ → 路径 C（状态追踪式组合）
 1. **路径 C 的右键菜单抑制**：使用延迟发送 Escape 关闭，不够优雅，在某些应用中可能有副作用
 2. **按键捕获轮询列表**：仅包含 F1-F12（F13-F24 在多数键盘上 `GetKeyState` 会误报），符号键使用 VK 码
 3. **路径 B 的组合热键**：`modKey & sourceKey` 语法会拦截修饰键的原始功能（手势等会丢失）
-4. **单文件架构**：随着功能增加，文件已超过 1500 行，后续可考虑拆分模块
+4. **单文件架构**：随着功能增加，文件已超过 1900 行，后续可考虑拆分模块
 5. **OnMessage 鼠标钩子**：仅能捕获发送到 AHK 自身窗口的消息，路径 C 的修饰键监控依赖 AHK 的 Hotkey 钩子
+6. **多配置热键冲突**：当多个配置的条件同时满足且定义了相同热键时，AHK 按注册顺序匹配第一个满足条件的（include > exclude > global）
+7. **排除模式精度**：排除模式作用于整个配置级别，无法精确到单条映射。需要排除单条映射时，推荐使用"复制配置 + 删除冲突映射 + 设为 include"的工作流
 
 ## 开发环境
 
