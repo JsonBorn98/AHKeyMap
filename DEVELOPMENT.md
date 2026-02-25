@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采用**单文件架构**（`AHKeyMap.ahk`），使用 AHKv2 原生 `Gui` 构建界面，INI 格式保存配置。
+AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采用**模块化架构**（主入口 `AHKeyMap.ahk` + 7 个功能模块），使用 AHKv2 原生 `Gui` 构建界面，INI 格式保存配置。
 
 核心能力：
 
@@ -135,33 +135,110 @@ AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，采�
 - **根因**：快速复制后删除触发多次 `ReloadAllHotkeys()` 调用，某些边界情况下 `ActiveHotkeys` 数组中可能存在非 Map 类型的无效引用，直接调用 `hk.Has()` 方法触发内存访问错误
 - **修复**：在 `UnregisterAllHotkeys()` 遍历 `ActiveHotkeys` 时增加防御性类型检查 `Type(hk) != "Map"`，跳过无效对象避免崩溃
 
+### v2.2.0 — 模块化重构
+
+**核心架构变更：**
+
+- 从"单文件架构"（2072 行）改为"模块化架构"（主入口 + 7 个功能模块）
+- 使用 `#Include` 指令组织模块，Ahk2Exe 编译时自动合并所有模块
+- 提升代码可维护性，便于多人协作和后续扩展
+
+**模块拆分方案（按功能领域）：**
+
+```
+AHKeyMap/
+├── AHKeyMap.ahk              # 主入口（~150 行）
+└── lib/
+    ├── Config.ahk            # 配置管理（~300 行）
+    ├── GuiMain.ahk           # 主窗口构建（~90 行）
+    ├── GuiEvents.ahk          # GUI 事件处理（~400 行）
+    ├── MappingEditor.ahk        # 映射编辑弹窗（~130 行）
+    ├── KeyCapture.ahk           # 按键捕获（~440 行）
+    ├── HotkeyEngine.ahk         # 热键引擎（~400 行）
+    └── Utils.ahk               # 工具函数（~250 行）
+```
+
+**模块职责划分：**
+
+- **Config.ahk**：配置文件加载/保存、配置列表管理、启用状态持久化
+- **GuiMain.ahk**：主窗口布局构建、托盘菜单初始化、模态窗口创建
+- **GuiEvents.ahk**：所有 GUI 事件处理（配置管理、映射管理、新建/删除/编辑）
+- **MappingEditor.ahk**：映射编辑弹窗构建、编辑事件处理、按键捕获按钮逻辑
+- **KeyCapture.ahk**："松开时确认"按键捕获机制、鼠标钩子、轮询逻辑
+- **HotkeyEngine.ahk**：热键注册/卸载、三条路径实现、长按连续触发、修饰键状态追踪
+- **Utils.ahk**：按键格式转换、进程选择器、开机自启
+
+**技术细节：**
+
+- 所有全局变量在主入口文件（AHKeyMap.ahk）中统一初始化
+- 各模块文件使用 `global varName` 声明引用主文件中的全局变量
+- 使用 `#Include` 指令在主入口文件中包含所有模块
+- 编译时 Ahk2Exe 自动处理 `#Include`，无需额外配置
+- 模块间通过全局变量和函数调用进行通信
+
+**全局变量管理规则：**
+
+- 主入口文件：在 `#Include` 之前初始化所有全局变量（包含默认值）
+- 模块文件：仅使用 `global varName` 声明，不重复初始化
+- 优势：避免变量初始化顺序问题，确保所有模块访问的都是同一个变量实例
+
+**编译配置更新：**
+
+- `build.bat` 需要指定正确的 base 文件路径（`AutoHotkey64.exe` 位于 `v2` 子目录）
+- 编译命令示例：
+  ```batch
+  Ahk2Exe.exe /in "AHKeyMap.ahk" /out "AHKeyMap.exe" /icon "icon.ico" /base "v2\AutoHotkey64.exe"
+  ```
+
 ## 文件架构
 
-### AHKeyMap.ahk 模块划分（v2.0）
+### AHKeyMap.ahk 模块划分（v2.2.0）
 
-| 模块 | 说明 |
-|---|---|
-| 头部 + 全局变量 | 编译指令、全局状态（`AllConfigs`、`CurrentXxx` GUI 编辑状态）、GUI 控件引用 |
-| 启动入口 | `StartApp()` → `LoadAllConfigs()` → `BuildMainGui()` → `ReloadAllHotkeys()` |
-| 配置管理 | `LoadAllConfigs` / `LoadConfigData` / `LoadConfigToGui` / `SaveConfig` / `SyncCurrentToAllConfigs` / `SaveEnabledStates` |
-| GUI 构建 | `BuildMainGui()` 主窗口布局（含启用复选框、复制按钮、作用域按钮、状态栏） |
-| 配置管理事件 | 新建/复制/删除配置、修改作用域对话框（三态模式）、启用/禁用切换 |
-| 映射管理事件 | 新增/编辑/复制/删除映射 |
-| 映射编辑弹窗 | `ShowEditMappingGui()` + 控件事件 |
-| 按键捕获 | 轮询机制、鼠标钩子、`FinishCapture` / `CancelCapture` |
-| 按键格式转换 | `KeyToDisplay` / `KeyToSendFormat` / `FormatKeyName` |
-| 进程选择器 | `ShowProcessPicker` / `GetRunningProcesses` |
-| 热键引擎 | `MakeProcessChecker` / `ReloadAllHotkeys` / `RegisterConfigHotkeys` / `RegisterMapping`（三条路径）、回调函数、修饰键监控 |
-| 托盘和窗口事件 | 关闭/显示/退出/提权 |
+**主入口文件：**
+- AHKeyMap.ahk（162 行）：全局变量定义（所有模块共享）、模块 #Include、托盘/窗口事件、启动入口
+
+**lib/ 模块文件：**
+
+| 模块文件 | 行数 | 说明 |
+|---|---|---|
+| Config.ahk | 320 | 配置管理：加载/保存配置、启用状态持久化、进程列表管理 |
+| GuiMain.ahk | 102 | 主窗口构建：布局、控件创建、托盘菜单初始化、模态窗口创建 |
+| GuiEvents.ahk | 393 | GUI 事件处理：配置管理（新建/删除/编辑）、映射管理（新增/删除/复制） |
+| MappingEditor.ahk | 136 | 映射编辑弹窗：窗口构建、编辑事件、按键捕获按钮 |
+| KeyCapture.ahk | 467 | 按键捕获："松开时确认"机制、鼠标钩子、轮询逻辑、按键名称处理 |
+| HotkeyEngine.ahk | 418 | 热键引擎：注册/卸载、三条路径实现、长按连续触发、修饰键状态追踪 |
+| Utils.ahk | 220 | 工具函数：按键格式转换、进程选择器、开机自启 |
+
+**总计：** ~2218 行（分布在 8 个文件）
 
 ### 其他文件
 
 | 文件 | 说明 |
 |---|---|
-| `build.bat` | 一键编译脚本，自动搜索 Ahk2Exe（支持 scoop 安装路径） |
+| `build.bat` | 一键编译脚本，自动搜索 Ahk2Exe 和 base 文件（支持 scoop 安装路径） |
 | `icon.ico` | 应用图标（"AK" 字母设计，Python Pillow 生成） |
-| `MouseWheelTapSwitch.ahk` | 参考脚本（旧版 AHKv1 鼠标滚轮切换标签页），用于对比兼容性 |
 | `configs/` | 运行时配置目录（.gitignore 已排除） |
+
+### 项目文件统计（v2.2.0）
+
+```
+AHKeyMap/
+├── AHKeyMap.ahk          162 行  (主入口 + 全局变量定义)
+├── build.bat              ~70 行  (编译脚本)
+├── icon.ico               -       (应用图标)
+├── DEVELOPMENT.md         ~340 行 (本文档)
+├── configs/               -       (运行时配置，.gitignore)
+└── lib/                  ~2056 行(7个功能模块)
+    ├── Config.ahk         320 行  (配置管理)
+    ├── GuiEvents.ahk     393 行  (GUI 事件处理)
+    ├── GuiMain.ahk       102 行  (主窗口构建)
+    ├── HotkeyEngine.ahk   418 行  (热键引擎)
+    ├── KeyCapture.ahk     467 行  (按键捕获)
+    ├── MappingEditor.ahk  136 行  (映射编辑弹窗)
+    └── Utils.ahk          220 行  (工具函数)
+```
+
+**总代码量：** ~2218 行（不含注释和空行）
 
 ## 配置文件格式
 
@@ -236,10 +313,10 @@ ModifierKey 非空 + PassthroughMod=1？ → 路径 C（状态追踪式组合）
 1. **路径 C 的右键菜单抑制**：使用延迟发送 Escape 关闭，不够优雅，在某些应用中可能有副作用
 2. **按键捕获轮询列表**：仅包含 F1-F12（F13-F24 在多数键盘上 `GetKeyState` 会误报），符号键使用 VK 码
 3. **路径 B 的组合热键**：`modKey & sourceKey` 语法会拦截修饰键的原始功能（手势等会丢失）
-4. **单文件架构**：随着功能增加，文件已超过 1900 行，后续可考虑拆分模块
-5. **OnMessage 鼠标钩子**：仅能捕获发送到 AHK 自身窗口的消息，路径 C 的修饰键监控依赖 AHK 的 Hotkey 钩子
-6. **多配置热键冲突**：当多个配置的条件同时满足且定义了相同热键时，AHK 按注册顺序匹配第一个满足条件的（include > exclude > global）
-7. **排除模式精度**：排除模式作用于整个配置级别，无法精确到单条映射。需要排除单条映射时，推荐使用"复制配置 + 删除冲突映射 + 设为 include"的工作流
+4. **OnMessage 鼠标钩子**：仅能捕获发送到 AHK 自身窗口的消息，路径 C 的修饰键监控依赖 AHK 的 Hotkey 钩子
+5. **多配置热键冲突**：当多个配置的条件同时满足且定义了相同热键时，AHK 按注册顺序匹配第一个满足条件的（include > exclude > global）
+6. **排除模式精度**：排除模式作用于整个配置级别，无法精确到单条映射。需要排除单条映射时，推荐使用"复制配置 + 删除冲突映射 + 设为 include"的工作流
+7. **全局变量管理**：模块化后需要手动管理跨文件共享的全局变量声明，增加维护成本（未来可考虑类封装）
 
 ## 开发环境
 

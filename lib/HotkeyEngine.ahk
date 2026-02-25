@@ -1,0 +1,418 @@
+; ============================================================================
+; AHKeyMap - 热键引擎模块
+; 负责热键注册、回调处理、长按连续触发等核心功能
+; ============================================================================
+
+; 声明跨文件使用的全局变量
+global AllConfigs
+global ActiveHotkeys
+global HoldTimers
+global ComboFiredState
+global PassthroughModKeys
+global InterceptModKeys
+global PassthroughHandlers
+global PassthroughSourceRegistered
+global AllProcessCheckers
+
+; ============================================================================
+; 热键引擎核心
+; ============================================================================
+
+; 创建进程匹配闭包工厂函数
+; 根据配置的 processMode 返回对应的 HotIf 条件函数
+MakeProcessChecker(cfg) {
+    mode := cfg["processMode"]
+    if (mode = "include") {
+        procList := cfg["processList"]
+        return (*) => CheckIncludeMatch(procList)
+    } else if (mode = "exclude") {
+        exclList := cfg["excludeProcessList"]
+        return (*) => CheckExcludeMatch(exclList)
+    }
+    ; global 模式不需要 HotIf 条件
+    return ""
+}
+
+; include 模式：前台窗口匹配任一进程时返回 true
+CheckIncludeMatch(procList) {
+    for procName in procList {
+        if WinActive("ahk_exe " procName)
+            return true
+    }
+    return false
+}
+
+; exclude 模式：前台窗口不在排除列表中时返回 true
+CheckExcludeMatch(exclList) {
+    try {
+        fgProc := WinGetProcessName("A")
+        for procName in exclList {
+            if (fgProc = procName)
+                return false
+        }
+    }
+    return true
+}
+
+; 卸载所有当前热键
+UnregisterAllHotkeys() {
+    ; 先清理状态追踪式修饰键
+    CleanupPassthroughModKeys()
+
+    ; 卸载所有已注册的热键
+    for _, hk in ActiveHotkeys {
+        try {
+            ; 防御性检查：确保 hk 是有效的 Map 对象
+            if (Type(hk) != "Map")
+                continue
+
+            if (hk.Has("checker") && hk["checker"] != "")
+                HotIf(hk["checker"])
+            else
+                HotIf()
+
+            Hotkey(hk["key"], "Off")
+            if (hk.Has("keyUp"))
+                Hotkey(hk["keyUp"], "Off")
+        }
+    }
+    HotIf()
+    global ActiveHotkeys := []
+    global ComboFiredState := Map()
+    global PassthroughModKeys := Map()
+    global InterceptModKeys := Map()
+    global PassthroughHandlers := Map()
+    global PassthroughSourceRegistered := Map()
+    global HoldTimers := Map()
+    global AllProcessCheckers := []
+}
+
+; 重新加载所有已启用配置的热键
+ReloadAllHotkeys() {
+    UnregisterAllHotkeys()
+
+    ; 按优先级排序：include > exclude > global
+    ; 收集各类配置
+    includeConfigs := []
+    excludeConfigs := []
+    globalConfigs := []
+
+    for _, cfg in AllConfigs {
+        if (!cfg["enabled"])
+            continue
+        if (cfg["mappings"].Length = 0)
+            continue
+
+        mode := cfg["processMode"]
+        if (mode = "include")
+            includeConfigs.Push(cfg)
+        else if (mode = "exclude")
+            excludeConfigs.Push(cfg)
+        else
+            globalConfigs.Push(cfg)
+    }
+
+    ; 按优先级注册：include 最先（最具体），global 最后
+    for _, cfg in includeConfigs
+        RegisterConfigHotkeys(cfg)
+    for _, cfg in excludeConfigs
+        RegisterConfigHotkeys(cfg)
+    for _, cfg in globalConfigs
+        RegisterConfigHotkeys(cfg)
+
+    HotIf()
+}
+
+; 为单个配置注册所有热键
+RegisterConfigHotkeys(cfg) {
+    mappings := cfg["mappings"]
+    if (mappings.Length = 0)
+        return
+
+    ; 创建该配置的进程匹配闭包
+    checker := MakeProcessChecker(cfg)
+    ; 保持引用防止 GC
+    if (checker != "")
+        AllProcessCheckers.Push(checker)
+
+    useCustomHotIf := (checker != "")
+
+    ; 第一遍：收集状态追踪式映射，按 sourceKey 分组
+    for idx, mapping in mappings {
+        modKey := mapping["ModifierKey"]
+        if (modKey = "" || !mapping["PassthroughMod"])
+            continue
+
+        srcKey := mapping["SourceKey"]
+        ; 使用配置名+sourceKey 作为键，避免跨配置冲突
+        groupKey := cfg["name"] "|" srcKey
+        if !PassthroughHandlers.Has(groupKey)
+            PassthroughHandlers[groupKey] := []
+
+        PassthroughHandlers[groupKey].Push({
+            modKey: modKey,
+            targetKey: mapping["TargetKey"],
+            holdRepeat: mapping["HoldRepeat"],
+            repeatDelay: mapping["RepeatDelay"],
+            repeatInterval: mapping["RepeatInterval"],
+            idx: cfg["name"] "|" idx
+        })
+    }
+
+    ; 第二遍：注册所有热键
+    for idx, mapping in mappings {
+        RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
+    }
+}
+
+; 注册单个映射
+RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
+    modKey := mapping["ModifierKey"]
+    sourceKey := mapping["SourceKey"]
+    targetKey := mapping["TargetKey"]
+    holdRepeat := mapping["HoldRepeat"]
+    repeatDelay := mapping["RepeatDelay"]
+    repeatInterval := mapping["RepeatInterval"]
+    passthroughMod := mapping["PassthroughMod"]
+
+    ; 设置 HotIf 条件
+    if (useCustomHotIf)
+        HotIf(checker)
+    else
+        HotIf()
+
+    hkInfo := Map()
+    hkInfo["checker"] := checker
+
+    if (modKey = "") {
+        ; ===== 路径 A：无修饰键 =====
+        hkInfo["key"] := sourceKey
+
+        if (holdRepeat) {
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
+            upCb := HoldUpCallback.Bind(uniqueIdx)
+            try {
+                Hotkey(sourceKey, downCb, "On")
+                Hotkey(sourceKey " Up", upCb, "On")
+                hkInfo["keyUp"] := sourceKey " Up"
+            }
+        } else {
+            sendCb := SendKeyCallback.Bind(targetKey)
+            try Hotkey(sourceKey, sendCb, "On")
+        }
+
+    } else if (!passthroughMod) {
+        ; ===== 路径 B：拦截式组合热键 =====
+        comboKey := modKey " & " sourceKey
+        hkInfo["key"] := comboKey
+
+        if (holdRepeat) {
+            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
+            upCb := HoldUpCallback.Bind(uniqueIdx)
+            try {
+                Hotkey(comboKey, downCb, "On")
+                Hotkey(comboKey " Up", upCb, "On")
+                hkInfo["keyUp"] := comboKey " Up"
+            }
+        } else {
+            sendCb := SendKeyCallback.Bind(targetKey)
+            try Hotkey(comboKey, sendCb, "On")
+        }
+
+        ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
+        modRegKey := (checker != "" ? configName : "") "|" modKey
+        if !InterceptModKeys.Has(modRegKey) {
+            try {
+                restoreCb := RestoreModKeyCallback.Bind(modKey)
+                Hotkey(modKey, restoreCb, "On")
+                modHkInfo := Map()
+                modHkInfo["key"] := modKey
+                modHkInfo["checker"] := checker
+                ActiveHotkeys.Push(modHkInfo)
+                InterceptModKeys[modRegKey] := true
+            }
+        }
+
+    } else {
+        ; ===== 路径 C：状态追踪式 =====
+        groupKey := configName "|" sourceKey
+        srcRegKey := (checker != "" ? configName : "") "|" sourceKey
+        if !PassthroughSourceRegistered.Has(srcRegKey) {
+            hkInfo["key"] := sourceKey
+
+            handler := PassthroughSourceHandler.Bind(groupKey)
+            try Hotkey(sourceKey, handler, "On")
+
+            PassthroughSourceRegistered[srcRegKey] := true
+        } else {
+            hkInfo["key"] := sourceKey
+        }
+
+        ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
+        modRegKey := (checker != "" ? configName : "") "|" modKey
+        if !PassthroughModKeys.Has(modRegKey) {
+            SetupPassthroughModKey(modKey, checker)
+            PassthroughModKeys[modRegKey] := true
+        }
+    }
+
+    ActiveHotkeys.Push(hkInfo)
+}
+
+; 设置状态追踪式修饰键的按下/松开监控
+SetupPassthroughModKey(modKey, checker := "") {
+    ComboFiredState[modKey] := false
+
+    downCb := PassthroughModDown.Bind(modKey)
+    upCb := PassthroughModUp.Bind(modKey)
+    try {
+        Hotkey("~" modKey, downCb, "On")
+        Hotkey("~" modKey " Up", upCb, "On")
+    }
+
+    ; 记录用于卸载
+    modHkInfo := Map()
+    modHkInfo["key"] := "~" modKey
+    modHkInfo["keyUp"] := "~" modKey " Up"
+    modHkInfo["checker"] := checker
+    ActiveHotkeys.Push(modHkInfo)
+}
+
+; 清理状态追踪式修饰键的监控
+CleanupPassthroughModKeys() {
+    ; 通过 ActiveHotkeys 中记录的 checker 来正确卸载
+    ; （在 UnregisterAllHotkeys 的主循环中统一处理）
+    ; 这里只重置状态
+    global PassthroughModKeys := Map()
+}
+
+; 修饰键按下：初始化组合触发状态
+PassthroughModDown(modKey, *) {
+    ComboFiredState[modKey] := false
+}
+
+; 修饰键松开：如果触发过组合，尝试抑制副作用
+PassthroughModUp(modKey, *) {
+    if (ComboFiredState.Has(modKey) && ComboFiredState[modKey]) {
+        ComboFiredState[modKey] := false
+        ; ~ 前缀已经让物理事件通过，无法阻止
+        ; 对于 RButton，松开可能触发右键菜单，用 Escape 关闭
+        if (modKey = "RButton")
+            SetTimer(DismissContextMenu, -10)
+        return
+    }
+    ComboFiredState[modKey] := false
+}
+
+; 延迟关闭右键菜单（给系统一点时间弹出菜单后再关闭）
+DismissContextMenu(*) {
+    Send("{Escape}")
+}
+
+; ============================================================================
+; 路径 A/B 回调
+; ============================================================================
+
+SendKeyCallback(targetKey, *) {
+    Send(KeyToSendFormat(targetKey))
+}
+
+HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, sourceKey, *) {
+    ; 防御性清理：如果已有定时器运行（防止重入导致孤立定时器）
+    if HoldTimers.Has(idx) {
+        if (HoldTimers[idx].HasProp("fn"))
+            SetTimer(HoldTimers[idx].fn, 0)
+        if (HoldTimers[idx].HasProp("startFn"))
+            SetTimer(HoldTimers[idx].startFn, 0)
+        HoldTimers[idx].active := false
+    }
+
+    sendKey := KeyToSendFormat(targetKey)
+    Send(sendKey)
+
+    timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx)
+    startFn := StartRepeat.Bind(idx, timerFn, repeatInterval)
+    HoldTimers[idx] := { fn: timerFn, startFn: startFn, interval: repeatInterval, active: true }
+    SetTimer(startFn, -repeatDelay)
+}
+
+StartRepeat(idx, timerFn, interval, *) {
+    if (HoldTimers.Has(idx) && HoldTimers[idx].active)
+        SetTimer(timerFn, interval)
+}
+
+RepeatTimerCallback(sendKey, sourceKey, idx, *) {
+    ; 安全检查：如果源按键已松开（非滚轮键），自动停止定时器
+    ; 去除修饰键前缀（^ + ! #），GetKeyState 只接受纯按键名
+    baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
+    if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
+        if HoldTimers.Has(idx) {
+            if (HoldTimers[idx].HasProp("fn"))
+                SetTimer(HoldTimers[idx].fn, 0)
+            HoldTimers[idx].active := false
+            HoldTimers.Delete(idx)
+        }
+        return
+    }
+    Send(sendKey)
+}
+
+HoldUpCallback(idx, *) {
+    if HoldTimers.Has(idx) {
+        if (HoldTimers[idx].HasProp("fn"))
+            SetTimer(HoldTimers[idx].fn, 0)
+        if (HoldTimers[idx].HasProp("startFn"))
+            SetTimer(HoldTimers[idx].startFn, 0)
+        HoldTimers[idx].active := false
+        HoldTimers.Delete(idx)
+    }
+}
+
+RestoreModKeyCallback(modKey, *) {
+    Send(KeyToSendFormat(modKey))
+}
+
+; ============================================================================
+; 路径 C 回调（状态追踪式）
+; ============================================================================
+
+; sourceKey 的统一处理器：检查所有关联的修饰键
+; groupKey 格式为 "configName|sourceKey"
+PassthroughSourceHandler(groupKey, *) {
+    if !PassthroughHandlers.Has(groupKey) {
+        ; 没有关联的组合映射，从 groupKey 提取 sourceKey 转发
+        parts := StrSplit(groupKey, "|",, 2)
+        sourceKey := parts.Length >= 2 ? parts[2] : groupKey
+        Send(KeyToSendFormat(sourceKey))
+        return
+    }
+
+    handlers := PassthroughHandlers[groupKey]
+    for _, h in handlers {
+        if GetKeyState(h.modKey, "P") {
+            ; 修饰键按住，触发组合
+            ComboFiredState[h.modKey] := true
+
+            if (h.holdRepeat) {
+                ; 长按连续触发
+                ; 提取 sourceKey（从 groupKey "configName|sourceKey"）
+                _parts := StrSplit(groupKey, "|",, 2)
+                _srcKey := _parts.Length >= 2 ? _parts[2] : ""
+                sendKey := KeyToSendFormat(h.targetKey)
+                Send(sendKey)
+                timerFn := RepeatTimerCallback.Bind(sendKey, _srcKey, h.idx)
+                startFn := StartRepeat.Bind(h.idx, timerFn, h.repeatInterval)
+                HoldTimers[h.idx] := { fn: timerFn, startFn: startFn, interval: h.repeatInterval, active: true }
+                SetTimer(startFn, -h.repeatDelay)
+            } else {
+                Send(KeyToSendFormat(h.targetKey))
+            }
+            return
+        }
+    }
+
+    ; 没有任何修饰键按住，从 groupKey 提取 sourceKey 转发
+    parts := StrSplit(groupKey, "|",, 2)
+    sourceKey := parts.Length >= 2 ? parts[2] : groupKey
+    Send(KeyToSendFormat(sourceKey))
+}
