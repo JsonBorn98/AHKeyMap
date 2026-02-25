@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.2.0
+;@Ahk2Exe-SetVersion 2.2.1
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,7 +18,7 @@ Persistent
 ; 全局变量（所有模块共享）
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.2.0"
+global APP_VERSION := "2.2.1"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
@@ -150,6 +150,9 @@ StartApp() {
 
     ; 加载所有配置到 AllConfigs 并注册已启用配置的热键
     LoadAllConfigs()
+
+    ; 启动时同步启用状态，清理 _state.ini 中的历史残留键
+    SaveEnabledStates()
 
     ; 刷新配置下拉列表（仅 GUI 显示）
     RefreshConfigList(lastConfig)

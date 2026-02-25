@@ -288,6 +288,9 @@ SaveConfig() {
 
 ; 保存所有配置的启用状态到 _state.ini
 SaveEnabledStates() {
+    ; 先清理旧键，避免已删除配置残留在 _state.ini
+    try IniDelete(STATE_FILE, "EnabledConfigs")
+
     for _, cfg in AllConfigs {
         IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
     }
