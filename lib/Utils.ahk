@@ -43,6 +43,7 @@ KeyToDisplay(ahkKey) {
     return display
 }
 
+; 预留用途：未来可在此统一处理键名显示格式（如大小写规范化等）
 FormatKeyName(keyName) {
     return keyName
 }
@@ -173,26 +174,20 @@ GetRunningProcesses() {
         }
     }
 
-    result := []
+    ; 收集进程名到换行分隔字符串后用内置 Sort 排序
+    nameStr := ""
     for name, _ in processes
-        result.Push(name)
+        nameStr .= name "`n"
+    nameStr := RTrim(nameStr, "`n")
+    if (nameStr = "")
+        return []
 
-    ; 冒泡排序
-    n := result.Length
-    if (n > 1) {
-        loop n - 1 {
-            i := A_Index
-            loop n - i {
-                j := A_Index
-                if (StrCompare(result[j], result[j + 1]) > 0) {
-                    temp := result[j]
-                    result[j] := result[j + 1]
-                    result[j + 1] := temp
-                }
-            }
-        }
+    sorted := Sort(nameStr)
+    result := []
+    loop parse sorted, "`n" {
+        if (A_LoopField != "")
+            result.Push(A_LoopField)
     }
-
     return result
 }
 

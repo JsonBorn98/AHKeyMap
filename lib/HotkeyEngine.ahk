@@ -165,17 +165,10 @@ RegisterConfigHotkeys(cfg) {
     }
 }
 
-; 注册单个映射
+; 注册单个映射：根据 modKey 和 passthroughMod 分发到路径 A/B/C
 RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
     modKey := mapping["ModifierKey"]
-    sourceKey := mapping["SourceKey"]
-    targetKey := mapping["TargetKey"]
-    holdRepeat := mapping["HoldRepeat"]
-    repeatDelay := mapping["RepeatDelay"]
-    repeatInterval := mapping["RepeatInterval"]
-    passthroughMod := mapping["PassthroughMod"]
 
-    ; 设置 HotIf 条件
     if (useCustomHotIf)
         HotIf(checker)
     else
@@ -184,79 +177,93 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
     hkInfo := Map()
     hkInfo["checker"] := checker
 
-    if (modKey = "") {
-        ; ===== 路径 A：无修饰键 =====
-        hkInfo["key"] := sourceKey
-
-        if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
-            upCb := HoldUpCallback.Bind(uniqueIdx)
-            try {
-                Hotkey(sourceKey, downCb, "On")
-                Hotkey(sourceKey " Up", upCb, "On")
-                hkInfo["keyUp"] := sourceKey " Up"
-            }
-        } else {
-            sendCb := SendKeyCallback.Bind(targetKey)
-            try Hotkey(sourceKey, sendCb, "On")
-        }
-
-    } else if (!passthroughMod) {
-        ; ===== 路径 B：拦截式组合热键 =====
-        comboKey := modKey " & " sourceKey
-        hkInfo["key"] := comboKey
-
-        if (holdRepeat) {
-            downCb := HoldDownCallback.Bind(targetKey, repeatDelay, repeatInterval, uniqueIdx, sourceKey)
-            upCb := HoldUpCallback.Bind(uniqueIdx)
-            try {
-                Hotkey(comboKey, downCb, "On")
-                Hotkey(comboKey " Up", upCb, "On")
-                hkInfo["keyUp"] := comboKey " Up"
-            }
-        } else {
-            sendCb := SendKeyCallback.Bind(targetKey)
-            try Hotkey(comboKey, sendCb, "On")
-        }
-
-        ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
-        modRegKey := (checker != "" ? configName : "") "|" modKey
-        if !InterceptModKeys.Has(modRegKey) {
-            try {
-                restoreCb := RestoreModKeyCallback.Bind(modKey)
-                Hotkey(modKey, restoreCb, "On")
-                modHkInfo := Map()
-                modHkInfo["key"] := modKey
-                modHkInfo["checker"] := checker
-                ActiveHotkeys.Push(modHkInfo)
-                InterceptModKeys[modRegKey] := true
-            }
-        }
-
-    } else {
-        ; ===== 路径 C：状态追踪式 =====
-        groupKey := configName "|" sourceKey
-        srcRegKey := (checker != "" ? configName : "") "|" sourceKey
-        if !PassthroughSourceRegistered.Has(srcRegKey) {
-            hkInfo["key"] := sourceKey
-
-            handler := PassthroughSourceHandler.Bind(groupKey)
-            try Hotkey(sourceKey, handler, "On")
-
-            PassthroughSourceRegistered[srcRegKey] := true
-        } else {
-            hkInfo["key"] := sourceKey
-        }
-
-        ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
-        modRegKey := (checker != "" ? configName : "") "|" modKey
-        if !PassthroughModKeys.Has(modRegKey) {
-            SetupPassthroughModKey(modKey, checker)
-            PassthroughModKeys[modRegKey] := true
-        }
-    }
+    if (modKey = "")
+        RegisterPathA(mapping, hkInfo, uniqueIdx)
+    else if (!mapping["PassthroughMod"])
+        RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
+    else
+        RegisterPathC(mapping, hkInfo, checker, configName)
 
     ActiveHotkeys.Push(hkInfo)
+}
+
+; 路径 A：无修饰键，直接映射 sourceKey → targetKey
+RegisterPathA(mapping, hkInfo, uniqueIdx) {
+    sourceKey := mapping["SourceKey"]
+    targetKey := mapping["TargetKey"]
+    holdRepeat := mapping["HoldRepeat"]
+
+    hkInfo["key"] := sourceKey
+
+    if (holdRepeat) {
+        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        upCb := HoldUpCallback.Bind(uniqueIdx)
+        try {
+            Hotkey(sourceKey, downCb, "On")
+            Hotkey(sourceKey " Up", upCb, "On")
+            hkInfo["keyUp"] := sourceKey " Up"
+        }
+    } else {
+        try Hotkey(sourceKey, SendKeyCallback.Bind(targetKey), "On")
+    }
+}
+
+; 路径 B：拦截式组合热键（modKey & sourceKey），修饰键不透传
+RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
+    modKey := mapping["ModifierKey"]
+    sourceKey := mapping["SourceKey"]
+    targetKey := mapping["TargetKey"]
+    holdRepeat := mapping["HoldRepeat"]
+    comboKey := modKey " & " sourceKey
+
+    hkInfo["key"] := comboKey
+
+    if (holdRepeat) {
+        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        upCb := HoldUpCallback.Bind(uniqueIdx)
+        try {
+            Hotkey(comboKey, downCb, "On")
+            Hotkey(comboKey " Up", upCb, "On")
+            hkInfo["keyUp"] := comboKey " Up"
+        }
+    } else {
+        try Hotkey(comboKey, SendKeyCallback.Bind(targetKey), "On")
+    }
+
+    ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
+    modRegKey := (checker != "" ? configName : "") "|" modKey
+    if !InterceptModKeys.Has(modRegKey) {
+        try {
+            Hotkey(modKey, RestoreModKeyCallback.Bind(modKey), "On")
+            modHkInfo := Map()
+            modHkInfo["key"] := modKey
+            modHkInfo["checker"] := checker
+            ActiveHotkeys.Push(modHkInfo)
+            InterceptModKeys[modRegKey] := true
+        }
+    }
+}
+
+; 路径 C：状态追踪式（修饰键透传），sourceKey 统一分发
+RegisterPathC(mapping, hkInfo, checker, configName) {
+    modKey := mapping["ModifierKey"]
+    sourceKey := mapping["SourceKey"]
+    groupKey := configName "|" sourceKey
+    srcRegKey := (checker != "" ? configName : "") "|" sourceKey
+
+    hkInfo["key"] := sourceKey
+
+    if !PassthroughSourceRegistered.Has(srcRegKey) {
+        try Hotkey(sourceKey, PassthroughSourceHandler.Bind(groupKey), "On")
+        PassthroughSourceRegistered[srcRegKey] := true
+    }
+
+    ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
+    modRegKey := (checker != "" ? configName : "") "|" modKey
+    if !PassthroughModKeys.Has(modRegKey) {
+        SetupPassthroughModKey(modKey, checker)
+        PassthroughModKeys[modRegKey] := true
+    }
 }
 
 ; 设置状态追踪式修饰键的按下/松开监控

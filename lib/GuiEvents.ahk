@@ -90,25 +90,10 @@ OnNewConfigOK(newGui, *) {
         return
     }
 
-    ; 确定进程模式
-    processMode := "global"
+    ; 确定进程模式与进程列表
     submitted := newGui.Submit(false)
-    if (submitted.ProcessMode = 2)
-        processMode := "include"
-    else if (submitted.ProcessMode = 3)
-        processMode := "exclude"
-
-    ; 解析进程列表
-    rawText := newGui["ProcName"].Value
-    procStr := ""
-    loop parse rawText, "`n", "`r" {
-        trimmed := Trim(A_LoopField)
-        if (trimmed != "") {
-            if (procStr != "")
-                procStr .= "|"
-            procStr .= trimmed
-        }
-    }
+    processMode := RadioToProcessMode(submitted.ProcessMode)
+    procStr := ProcTextToStr(newGui["ProcName"].Value)
 
     IniWrite(configName, configFile, "Meta", "Name")
     IniWrite(processMode, configFile, "Meta", "ProcessMode")
@@ -264,25 +249,10 @@ OnChangeProcess(*) {
 }
 
 OnChangeProcessOK(changeGui, *) {
-    ; 确定进程模式
+    ; 确定进程模式与进程列表
     submitted := changeGui.Submit(false)
-    processMode := "global"
-    if (submitted.ProcessMode = 2)
-        processMode := "include"
-    else if (submitted.ProcessMode = 3)
-        processMode := "exclude"
-
-    ; 解析进程列表
-    rawText := changeGui["ProcName"].Value
-    procStr := ""
-    loop parse rawText, "`n", "`r" {
-        trimmed := Trim(A_LoopField)
-        if (trimmed != "") {
-            if (procStr != "")
-                procStr .= "|"
-            procStr .= trimmed
-        }
-    }
+    processMode := RadioToProcessMode(submitted.ProcessMode)
+    procStr := ProcTextToStr(changeGui["ProcName"].Value)
 
     global CurrentProcessMode := processMode
     if (processMode = "include") {
@@ -390,4 +360,31 @@ OnDeleteMapping(*) {
         RefreshMappingLV()
         ReloadAllHotkeys()
     }
+}
+
+; ============================================================================
+; 私有辅助函数
+; ============================================================================
+
+; 将三态单选按钮值（1=全局, 2=仅指定, 3=排除）转换为进程模式字符串
+RadioToProcessMode(radioVal) {
+    if (radioVal = 2)
+        return "include"
+    if (radioVal = 3)
+        return "exclude"
+    return "global"
+}
+
+; 将多行进程文本（每行一个进程名）解析为 | 分隔的字符串
+ProcTextToStr(rawText) {
+    procStr := ""
+    loop parse rawText, "`n", "`r" {
+        trimmed := Trim(A_LoopField)
+        if (trimmed != "") {
+            if (procStr != "")
+                procStr .= "|"
+            procStr .= trimmed
+        }
+    }
+    return procStr
 }
