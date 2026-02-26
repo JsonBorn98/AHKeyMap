@@ -10,17 +10,17 @@
 
 ## 模块职责
 - `AHKeyMap.ahk`：全局变量初始化、模块 `#Include`、启动入口
-- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化
+- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 含写入错误保护）
 - `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理
-- `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）
+- `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `lib/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `lib/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
-- `lib/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑
+- `lib/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B/C 分别由 `RegisterPathA/B/C` 实现
 - `lib/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
 ## 全局变量管理
 - 所有全局变量只在 `AHKeyMap.ahk` 中定义并初始化。
-- 模块中仅用 `global VarName` 进行引用，不重复初始化。
+- 模块中仅用 `global VarName` 进行引用声明，不重复初始化（重复赋值会在 `#Include` 时覆盖主入口的值）。
 
 ## 配置文件约定
 ### 配置 INI（每个配置一个文件）
@@ -34,21 +34,24 @@
 - `[EnabledConfigs]`：每个配置的启用标记（1/0）
 
 ## 热键引擎（三条路径）
-### 路径选择逻辑
-- `ModifierKey` 为空：路径 A（普通热键）
-- `ModifierKey` 非空且 `PassthroughMod=0`：路径 B（拦截式组合）
-- `ModifierKey` 非空且 `PassthroughMod=1`：路径 C（状态追踪式组合）
 
-### 路径 A（无修饰键）
+`RegisterMapping` 根据 `ModifierKey` 与 `PassthroughMod` 分发到三个路径函数。
+
+### 路径选择逻辑
+- `ModifierKey` 为空 → `RegisterPathA`（普通热键）
+- `ModifierKey` 非空且 `PassthroughMod=0` → `RegisterPathB`（拦截式组合）
+- `ModifierKey` 非空且 `PassthroughMod=1` → `RegisterPathC`（状态追踪式组合）
+
+### 路径 A — `RegisterPathA`（无修饰键）
 - `Hotkey(sourceKey, callback)` 直接注册
 - 支持长按连续触发（定时器）
 
-### 路径 B（拦截式组合）
+### 路径 B — `RegisterPathB`（拦截式组合）
 - 使用 `modKey & sourceKey` 组合热键
 - 修饰键原始功能会被拦截
-- 额外注册修饰键恢复热键
+- 额外注册修饰键恢复热键（同 HotIf 条件下仅注册一次）
 
-### 路径 C（状态追踪式组合）
+### 路径 C — `RegisterPathC`（状态追踪式组合）
 - 使用 `~modKey` 保留修饰键物理事件
 - `Hotkey(sourceKey, handler)` 检查修饰键状态
 - 用 `ComboFiredState` 追踪本次按住期间是否触发组合
