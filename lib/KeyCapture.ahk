@@ -400,6 +400,7 @@ OnCaptureMouseMUp(wParam, lParam, msg, hwnd) {
         return
     if CaptureMouseKeys.Has("MButton")
         CaptureMouseKeys.Delete("MButton")
+    return 0
 }
 
 OnCaptureMouseLDown(wParam, lParam, msg, hwnd) {
@@ -414,6 +415,7 @@ OnCaptureMouseLUp(wParam, lParam, msg, hwnd) {
         return
     if CaptureMouseKeys.Has("LButton")
         CaptureMouseKeys.Delete("LButton")
+    return 0
 }
 
 OnCaptureMouseRDown(wParam, lParam, msg, hwnd) {
@@ -428,6 +430,7 @@ OnCaptureMouseRUp(wParam, lParam, msg, hwnd) {
         return
     if CaptureMouseKeys.Has("RButton")
         CaptureMouseKeys.Delete("RButton")
+    return 0
 }
 
 GetCurrentModifiers() {

@@ -261,24 +261,29 @@ SaveConfig() {
     if (CurrentConfigName = "" || CurrentConfigFile = "")
         return
 
-    ; 删除旧文件重写
-    if FileExist(CurrentConfigFile)
-        FileDelete(CurrentConfigFile)
+    try {
+        ; 删除旧文件重写
+        if FileExist(CurrentConfigFile)
+            FileDelete(CurrentConfigFile)
 
-    IniWrite(CurrentConfigName, CurrentConfigFile, "Meta", "Name")
-    IniWrite(CurrentProcessMode, CurrentConfigFile, "Meta", "ProcessMode")
-    IniWrite(CurrentProcess, CurrentConfigFile, "Meta", "Process")
-    IniWrite(CurrentExcludeProcess, CurrentConfigFile, "Meta", "ExcludeProcess")
+        IniWrite(CurrentConfigName, CurrentConfigFile, "Meta", "Name")
+        IniWrite(CurrentProcessMode, CurrentConfigFile, "Meta", "ProcessMode")
+        IniWrite(CurrentProcess, CurrentConfigFile, "Meta", "Process")
+        IniWrite(CurrentExcludeProcess, CurrentConfigFile, "Meta", "ExcludeProcess")
 
-    for idx, mapping in Mappings {
-        section := "Mapping" idx
-        IniWrite(mapping["ModifierKey"], CurrentConfigFile, section, "ModifierKey")
-        IniWrite(mapping["SourceKey"], CurrentConfigFile, section, "SourceKey")
-        IniWrite(mapping["TargetKey"], CurrentConfigFile, section, "TargetKey")
-        IniWrite(mapping["HoldRepeat"], CurrentConfigFile, section, "HoldRepeat")
-        IniWrite(mapping["RepeatDelay"], CurrentConfigFile, section, "RepeatDelay")
-        IniWrite(mapping["RepeatInterval"], CurrentConfigFile, section, "RepeatInterval")
-        IniWrite(mapping["PassthroughMod"], CurrentConfigFile, section, "PassthroughMod")
+        for idx, mapping in Mappings {
+            section := "Mapping" idx
+            IniWrite(mapping["ModifierKey"], CurrentConfigFile, section, "ModifierKey")
+            IniWrite(mapping["SourceKey"], CurrentConfigFile, section, "SourceKey")
+            IniWrite(mapping["TargetKey"], CurrentConfigFile, section, "TargetKey")
+            IniWrite(mapping["HoldRepeat"], CurrentConfigFile, section, "HoldRepeat")
+            IniWrite(mapping["RepeatDelay"], CurrentConfigFile, section, "RepeatDelay")
+            IniWrite(mapping["RepeatInterval"], CurrentConfigFile, section, "RepeatInterval")
+            IniWrite(mapping["PassthroughMod"], CurrentConfigFile, section, "PassthroughMod")
+        }
+    } catch as e {
+        MsgBox("保存配置失败：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
+        return
     }
 
     ; 同步到 AllConfigs 并保存启用状态

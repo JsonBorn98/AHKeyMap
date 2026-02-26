@@ -76,8 +76,6 @@ KeyToSendFormat(ahkKey) {
 ; 进程选择器
 ; ============================================================================
 
-global ProcessPickerOpen := false
-
 CloseProcessPicker(procGui, *) {
     global ProcessPickerOpen := false
     procGui.Destroy()
