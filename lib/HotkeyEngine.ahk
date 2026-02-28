@@ -14,6 +14,7 @@ global PassthroughHandlers
 global PassthroughSourceRegistered
 global AllProcessCheckers
 global HotkeyConflicts
+global HotkeyRegErrors
 global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
@@ -87,6 +88,7 @@ UnregisterAllHotkeys() {
     global PassthroughSourceRegistered := Map()
     global HoldTimers := Map()
     global AllProcessCheckers := []
+    global HotkeyRegErrors := []
 }
 
 ; 重新加载所有已启用配置的热键
@@ -295,9 +297,13 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
             Hotkey(sourceKey, downCb, "On")
             Hotkey(sourceKey " Up", upCb, "On")
             hkInfo["keyUp"] := sourceKey " Up"
+        } catch as e {
+            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
         }
     } else {
         try Hotkey(sourceKey, SendKeyCallback.Bind(targetKey), "On")
+        catch as e
+            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
     }
 }
 
@@ -318,9 +324,13 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             Hotkey(comboKey, downCb, "On")
             Hotkey(comboKey " Up", upCb, "On")
             hkInfo["keyUp"] := comboKey " Up"
+        } catch as e {
+            HotkeyRegErrors.Push({ key: comboKey, error: e.Message })
         }
     } else {
         try Hotkey(comboKey, SendKeyCallback.Bind(targetKey), "On")
+        catch as e
+            HotkeyRegErrors.Push({ key: comboKey, error: e.Message })
     }
 
     ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
@@ -333,6 +343,8 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             modHkInfo["checker"] := checker
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
+        } catch as e {
+            HotkeyRegErrors.Push({ key: modKey, error: e.Message })
         }
     }
 }
@@ -347,8 +359,12 @@ RegisterPathC(mapping, hkInfo, checker, configName) {
     hkInfo["key"] := sourceKey
 
     if !PassthroughSourceRegistered.Has(srcRegKey) {
-        try Hotkey(sourceKey, PassthroughSourceHandler.Bind(groupKey), "On")
-        PassthroughSourceRegistered[srcRegKey] := true
+        try {
+            Hotkey(sourceKey, PassthroughSourceHandler.Bind(groupKey), "On")
+            PassthroughSourceRegistered[srcRegKey] := true
+        } catch as e {
+            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
+        }
     }
 
     ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
@@ -368,6 +384,8 @@ SetupPassthroughModKey(modKey, checker := "") {
     try {
         Hotkey("~" modKey, downCb, "On")
         Hotkey("~" modKey " Up", upCb, "On")
+    } catch as e {
+        HotkeyRegErrors.Push({ key: "~" modKey, error: e.Message })
     }
 
     ; 记录用于卸载

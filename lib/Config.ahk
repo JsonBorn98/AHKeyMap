@@ -24,6 +24,7 @@ global ProcessText
 global StatusText
 global MappingLV
 global HotkeyConflicts
+global HotkeyRegErrors
 global DEFAULT_REPEAT_DELAY
 global DEFAULT_REPEAT_INTERVAL
 
@@ -222,6 +223,8 @@ UpdateStatusText() {
     statusStr := "已启用 " enabledCount "/" totalCount " 个配置"
     if (HotkeyConflicts.Length > 0)
         statusStr .= "  ⚠ " HotkeyConflicts.Length " 个热键冲突"
+    if (HotkeyRegErrors.Length > 0)
+        statusStr .= "  ⚠ " HotkeyRegErrors.Length " 个热键注册失败"
     StatusText.Value := statusStr
 }
 
@@ -259,7 +262,7 @@ LoadConfigToGui(configName) {
     RefreshMappingLV()
 
     ; 保存最后查看的配置
-    IniWrite(configName, STATE_FILE, "State", "LastConfig")
+    try IniWrite(configName, STATE_FILE, "State", "LastConfig")
 }
 
 ; 保存当前配置到文件（原子写入：先写临时文件，成功后替换原文件）
@@ -296,12 +299,9 @@ SaveConfig() {
         return
     }
 
-    ; 第二步：临时文件写完后替换原文件
-    ; 仅在此阶段才删除原文件，确保写入阶段任何失败都不丢失原数据
+    ; 第二步：用临时文件覆盖原文件（FileMove 覆盖模式，避免先删后移的数据丢失风险）
     try {
-        if FileExist(CurrentConfigFile)
-            FileDelete(CurrentConfigFile)
-        FileMove(tempFile, CurrentConfigFile)
+        FileMove(tempFile, CurrentConfigFile, 1)
     } catch as e {
         try FileDelete(tempFile)
         MsgBox("保存配置失败（替换阶段）：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
@@ -319,7 +319,7 @@ SaveEnabledStates() {
     try IniDelete(STATE_FILE, "EnabledConfigs")
 
     for _, cfg in AllConfigs {
-        IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
+        try IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
     }
 }
 
