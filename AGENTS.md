@@ -8,13 +8,13 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 - No Cursor rules or Copilot instructions are present in the repo.
 
 ## Repo map
-- `AHKeyMap.ahk` — main entry, global variable initialization, `#Include` list, startup
-- `lib/Config.ahk` (~345 lines) — config load/save (atomic write), config list management, enabled state persistence
+- `AHKeyMap.ahk` — main entry, global variable initialization, named constants, `#Include` list, startup
+- `lib/Config.ahk` (~350 lines) — config load/save (atomic write), config list management, enabled state persistence
 - `lib/Utils.ahk` (~213 lines) — key display conversion, process picker, auto-start utilities
-- `lib/HotkeyEngine.ahk` (~425 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C)
-- `lib/KeyCapture.ahk` (~470 lines) — key capture mechanism (polling + mouse hook)
-- `lib/GuiMain.ahk` (~102 lines) — main window construction, tray menu, modal window helpers
-- `lib/MappingEditor.ahk` (~136 lines) — mapping edit dialog and key capture entry
+- `lib/HotkeyEngine.ahk` (~518 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C)
+- `lib/KeyCapture.ahk` (~472 lines) — key capture mechanism (polling + mouse hook)
+- `lib/GuiMain.ahk` (~138 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
+- `lib/MappingEditor.ahk` (~138 lines) — mapping edit dialog and key capture entry
 - `lib/GuiEvents.ahk` (~390 lines) — GUI event handlers (config CRUD, scope editing)
 - `configs/` — runtime INI files (gitignored)
 - `build.bat` — compile script for Ahk2Exe
