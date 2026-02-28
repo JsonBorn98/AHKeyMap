@@ -256,33 +256,49 @@ LoadConfigToGui(configName) {
     IniWrite(configName, STATE_FILE, "State", "LastConfig")
 }
 
-; 保存当前配置到文件
+; 保存当前配置到文件（原子写入：先写临时文件，成功后替换原文件）
 SaveConfig() {
     if (CurrentConfigName = "" || CurrentConfigFile = "")
         return
 
-    try {
-        ; 删除旧文件重写
-        if FileExist(CurrentConfigFile)
-            FileDelete(CurrentConfigFile)
+    tempFile := CurrentConfigFile ".tmp"
 
-        IniWrite(CurrentConfigName, CurrentConfigFile, "Meta", "Name")
-        IniWrite(CurrentProcessMode, CurrentConfigFile, "Meta", "ProcessMode")
-        IniWrite(CurrentProcess, CurrentConfigFile, "Meta", "Process")
-        IniWrite(CurrentExcludeProcess, CurrentConfigFile, "Meta", "ExcludeProcess")
+    ; 第一步：将全部内容写入临时文件，原文件暂不改动
+    try {
+        if FileExist(tempFile)
+            FileDelete(tempFile)
+
+        IniWrite(CurrentConfigName, tempFile, "Meta", "Name")
+        IniWrite(CurrentProcessMode, tempFile, "Meta", "ProcessMode")
+        IniWrite(CurrentProcess, tempFile, "Meta", "Process")
+        IniWrite(CurrentExcludeProcess, tempFile, "Meta", "ExcludeProcess")
 
         for idx, mapping in Mappings {
             section := "Mapping" idx
-            IniWrite(mapping["ModifierKey"], CurrentConfigFile, section, "ModifierKey")
-            IniWrite(mapping["SourceKey"], CurrentConfigFile, section, "SourceKey")
-            IniWrite(mapping["TargetKey"], CurrentConfigFile, section, "TargetKey")
-            IniWrite(mapping["HoldRepeat"], CurrentConfigFile, section, "HoldRepeat")
-            IniWrite(mapping["RepeatDelay"], CurrentConfigFile, section, "RepeatDelay")
-            IniWrite(mapping["RepeatInterval"], CurrentConfigFile, section, "RepeatInterval")
-            IniWrite(mapping["PassthroughMod"], CurrentConfigFile, section, "PassthroughMod")
+            IniWrite(mapping["ModifierKey"], tempFile, section, "ModifierKey")
+            IniWrite(mapping["SourceKey"], tempFile, section, "SourceKey")
+            IniWrite(mapping["TargetKey"], tempFile, section, "TargetKey")
+            IniWrite(mapping["HoldRepeat"], tempFile, section, "HoldRepeat")
+            IniWrite(mapping["RepeatDelay"], tempFile, section, "RepeatDelay")
+            IniWrite(mapping["RepeatInterval"], tempFile, section, "RepeatInterval")
+            IniWrite(mapping["PassthroughMod"], tempFile, section, "PassthroughMod")
         }
     } catch as e {
+        ; 写临时文件失败，原文件未动，清理残留 tmp
+        try FileDelete(tempFile)
         MsgBox("保存配置失败：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
+        return
+    }
+
+    ; 第二步：临时文件写完后替换原文件
+    ; 仅在此阶段才删除原文件，确保写入阶段任何失败都不丢失原数据
+    try {
+        if FileExist(CurrentConfigFile)
+            FileDelete(CurrentConfigFile)
+        FileMove(tempFile, CurrentConfigFile)
+    } catch as e {
+        try FileDelete(tempFile)
+        MsgBox("保存配置失败（替换阶段）：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
         return
     }
 

@@ -10,7 +10,7 @@
 
 ## 模块职责
 - `AHKeyMap.ahk`：全局变量初始化、模块 `#Include`、启动入口
-- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 含写入错误保护）
+- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
 - `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理
 - `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `lib/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
