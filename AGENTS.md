@@ -9,16 +9,16 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 
 ## Repo map
 - `AHKeyMap.ahk` — main entry, global variable initialization, named constants, `#Include` list, startup
-- `lib/Config.ahk` (~350 lines) — config load/save (atomic write), config list management, enabled state persistence
+- `lib/Config.ahk` (~359 lines) — config load/save (atomic write), config list management, enabled state persistence
 - `lib/Utils.ahk` (~213 lines) — key display conversion, process picker, auto-start utilities
-- `lib/HotkeyEngine.ahk` (~518 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C)
+- `lib/HotkeyEngine.ahk` (~536 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C)
 - `lib/KeyCapture.ahk` (~472 lines) — key capture mechanism (polling + mouse hook)
-- `lib/GuiMain.ahk` (~138 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
+- `lib/GuiMain.ahk` (~161 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
 - `lib/MappingEditor.ahk` (~138 lines) — mapping edit dialog and key capture entry
 - `lib/GuiEvents.ahk` (~390 lines) — GUI event handlers (config CRUD, scope editing)
 - `configs/` — runtime INI files (gitignored)
 - `build.bat` — compile script for Ahk2Exe
-- `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `*.bak`, `*.tmp`
+- `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `*.bak`, `*.tmp`, `.claude/`
 
 ## Build / run / test
 
@@ -120,6 +120,7 @@ Boundaries:
 - Keep event handlers short; extract logic into helper functions.
 - UI strings are Chinese; keep wording consistent with existing labels.
 - Update status via `UpdateStatusText()` after relevant state changes.
+- Status bar turns orange and becomes clickable when warnings exist (`HotkeyConflicts` or `HotkeyRegErrors` non-empty); click shows a MsgBox with details.
 
 ### Hotkey engine conventions
 - Three registration paths: A (no modifier), B (intercept combo), C (passthrough combo).
