@@ -13,6 +13,7 @@ global InterceptModKeys
 global PassthroughHandlers
 global PassthroughSourceRegistered
 global AllProcessCheckers
+global HotkeyConflicts
 
 ; ============================================================================
 ; 热键引擎核心
@@ -121,6 +122,97 @@ ReloadAllHotkeys() {
         RegisterConfigHotkeys(cfg)
 
     HotIf()
+
+    ; 检测热键冲突并更新状态栏
+    DetectHotkeyConflicts()
+    UpdateStatusText()
+}
+
+
+; 检测热键冲突：扫描所有已启用配置的映射，找出作用域重叠的重复热键
+; 冲突规则：
+;   global vs global/exclude → 冲突（作用域重叠）
+;   exclude vs exclude → 冲突（保守策略，排除列表不同也可能重叠）
+;   include vs include（相同进程列表）→ 冲突
+;   include vs 其他 → 不冲突（include 优先级最高，独立生效）
+DetectHotkeyConflicts() {
+    global HotkeyConflicts := []
+
+    ; 收集所有已启用配置的映射，附带作用域信息
+    allEntries := []  ; Array of {hotkey, configName, mappingIdx, mode, procKey}
+
+    for _, cfg in AllConfigs {
+        if (!cfg["enabled"])
+            continue
+        if (cfg["mappings"].Length = 0)
+            continue
+
+        mode := cfg["processMode"]
+        ; procKey 用于 include 模式下区分不同进程列表
+        if (mode = "include")
+            procKey := cfg["process"]
+        else
+            procKey := ""
+
+        for idx, mapping in cfg["mappings"] {
+            ; 构建热键字符串（与注册路径一致）
+            modKey := mapping["ModifierKey"]
+            sourceKey := mapping["SourceKey"]
+            if (modKey = "")
+                hkStr := sourceKey
+            else if (!mapping["PassthroughMod"])
+                hkStr := modKey " & " sourceKey
+            else
+                hkStr := "~" modKey "+" sourceKey
+
+            allEntries.Push({
+                hotkey: hkStr,
+                configName: cfg["name"],
+                mappingIdx: idx,
+                mode: mode,
+                procKey: procKey
+            })
+        }
+    }
+
+    ; 两两比较，检测作用域重叠的相同热键
+    count := allEntries.Length
+    i := 1
+    while (i <= count) {
+        j := i + 1
+        while (j <= count) {
+            a := allEntries[i]
+            b := allEntries[j]
+            if (a.hotkey = b.hotkey && ScopesOverlap(a.mode, a.procKey, b.mode, b.procKey)) {
+                HotkeyConflicts.Push({
+                    hotkey: a.hotkey,
+                    config1: a.configName,
+                    idx1: a.mappingIdx,
+                    config2: b.configName,
+                    idx2: b.mappingIdx
+                })
+            }
+            j++
+        }
+        i++
+    }
+}
+
+; 判断两个作用域是否存在重叠
+; include 与非 include 不重叠（include 优先级最高，独立匹配）
+; include 与 include 仅在进程列表相同时重叠
+; global/exclude 之间总是重叠（保守策略）
+ScopesOverlap(mode1, procKey1, mode2, procKey2) {
+    ; include 与非 include → 不重叠
+    if (mode1 = "include" && mode2 != "include")
+        return false
+    if (mode2 = "include" && mode1 != "include")
+        return false
+    ; 两个都是 include → 进程列表相同才重叠
+    if (mode1 = "include" && mode2 = "include")
+        return (procKey1 = procKey2)
+    ; global/exclude 之间 → 总是重叠
+    return true
 }
 
 ; 为单个配置注册所有热键

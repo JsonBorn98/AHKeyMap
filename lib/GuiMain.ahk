@@ -54,7 +54,7 @@ BuildMainGui() {
     MainGui.AddButton("x265 y" btnY " w80 h30", "删除映射").OnEvent("Click", OnDeleteMapping)
 
     ; --- 状态栏 ---
-    global StatusText := MainGui.AddText("x360 y" btnY + 5 " w180 h23 +0x200 cGray", "已启用 0/0 个配置")
+    global StatusText := MainGui.AddText("x360 y" btnY + 5 " w230 h23 +0x200 cGray", "已启用 0/0 个配置")
 
     ; --- 管理员提权按钮 ---
     adminBtn := MainGui.AddButton("x600 y" btnY " w110 h30", "以管理员重启")

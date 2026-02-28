@@ -23,6 +23,7 @@ global EnabledCB
 global ProcessText
 global StatusText
 global MappingLV
+global HotkeyConflicts
 
 ; ============================================================================
 ; 配置管理函数
@@ -216,7 +217,10 @@ UpdateStatusText() {
         if (cfg["enabled"])
             enabledCount++
     }
-    StatusText.Value := "已启用 " enabledCount "/" totalCount " 个配置"
+    statusStr := "已启用 " enabledCount "/" totalCount " 个配置"
+    if (HotkeyConflicts.Length > 0)
+        statusStr .= "  ⚠ " HotkeyConflicts.Length " 个热键冲突"
+    StatusText.Value := statusStr
 }
 
 ; 加载指定配置到 GUI 编辑区域（不影响热键注册）
