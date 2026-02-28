@@ -298,12 +298,12 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
             Hotkey(sourceKey " Up", upCb, "On")
             hkInfo["keyUp"] := sourceKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
+            HotkeyRegErrors.Push(sourceKey)
         }
     } else {
         try Hotkey(sourceKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
+            HotkeyRegErrors.Push(sourceKey)
     }
 }
 
@@ -325,12 +325,12 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             Hotkey(comboKey " Up", upCb, "On")
             hkInfo["keyUp"] := comboKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push({ key: comboKey, error: e.Message })
+            HotkeyRegErrors.Push(comboKey)
         }
     } else {
         try Hotkey(comboKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push({ key: comboKey, error: e.Message })
+            HotkeyRegErrors.Push(comboKey)
     }
 
     ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
@@ -344,7 +344,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
         } catch as e {
-            HotkeyRegErrors.Push({ key: modKey, error: e.Message })
+            HotkeyRegErrors.Push(modKey)
         }
     }
 }
@@ -363,7 +363,7 @@ RegisterPathC(mapping, hkInfo, checker, configName) {
             Hotkey(sourceKey, PassthroughSourceHandler.Bind(groupKey), "On")
             PassthroughSourceRegistered[srcRegKey] := true
         } catch as e {
-            HotkeyRegErrors.Push({ key: sourceKey, error: e.Message })
+            HotkeyRegErrors.Push(sourceKey)
         }
     }
 
@@ -385,7 +385,7 @@ SetupPassthroughModKey(modKey, checker := "") {
         Hotkey("~" modKey, downCb, "On")
         Hotkey("~" modKey " Up", upCb, "On")
     } catch as e {
-        HotkeyRegErrors.Push({ key: "~" modKey, error: e.Message })
+        HotkeyRegErrors.Push("~" modKey)
     }
 
     ; 记录用于卸载

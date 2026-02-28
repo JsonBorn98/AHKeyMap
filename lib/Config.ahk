@@ -221,10 +221,16 @@ UpdateStatusText() {
             enabledCount++
     }
     statusStr := "已启用 " enabledCount "/" totalCount " 个配置"
-    if (HotkeyConflicts.Length > 0)
+    hasWarning := false
+    if (HotkeyConflicts.Length > 0) {
         statusStr .= "  ⚠ " HotkeyConflicts.Length " 个热键冲突"
-    if (HotkeyRegErrors.Length > 0)
+        hasWarning := true
+    }
+    if (HotkeyRegErrors.Length > 0) {
         statusStr .= "  ⚠ " HotkeyRegErrors.Length " 个热键注册失败"
+        hasWarning := true
+    }
+    StatusText.SetFont(hasWarning ? "cE07B00" : "cGray")
     StatusText.Value := statusStr
 }
 
@@ -318,8 +324,11 @@ SaveEnabledStates() {
     ; 先清理旧键，避免已删除配置残留在 _state.ini
     try IniDelete(STATE_FILE, "EnabledConfigs")
 
-    for _, cfg in AllConfigs {
-        try IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
+    try {
+        for _, cfg in AllConfigs
+            IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
+    } catch as e {
+        MsgBox("保存启用状态失败：" e.Message, APP_NAME, "IconX")
     }
 }
 

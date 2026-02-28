@@ -17,6 +17,8 @@ global BtnEditMapping
 global BtnCopyMapping
 global BtnDeleteMapping
 global BtnRunAsAdmin
+global HotkeyConflicts
+global HotkeyRegErrors
 
 ; ============================================================================
 ; GUI 构建 - 主窗口
@@ -64,6 +66,7 @@ BuildMainGui() {
 
     ; --- 状态栏 ---
     global StatusText := MainGui.AddText("x360 y" btnY + 5 " w230 h23 +0x200 cGray", "已启用 0/0 个配置")
+    StatusText.OnEvent("Click", OnStatusTextClick)
 
     ; --- 管理员提权按钮 ---
     global BtnRunAsAdmin := MainGui.AddButton("x600 y" btnY " w110 h30", "以管理员重启")
@@ -135,4 +138,24 @@ CreateModalGui(title) {
 DestroyModalGui(modalGui) {
     MainGui.Opt("-Disabled")
     modalGui.Destroy()
+}
+
+; 点击状态栏时展示热键冲突与注册失败的详细信息
+OnStatusTextClick(*) {
+    if (HotkeyConflicts.Length = 0 && HotkeyRegErrors.Length = 0)
+        return
+    details := ""
+    if (HotkeyConflicts.Length > 0) {
+        details .= "热键冲突：`n"
+        for _, c in HotkeyConflicts
+            details .= "  " c.hotkey "（" c.config1 " / " c.config2 "）`n"
+    }
+    if (HotkeyRegErrors.Length > 0) {
+        if (details != "")
+            details .= "`n"
+        details .= "注册失败：`n"
+        for _, k in HotkeyRegErrors
+            details .= "  " k "`n"
+    }
+    MsgBox(RTrim(details, "`n"), APP_NAME, "Icon!")
 }
