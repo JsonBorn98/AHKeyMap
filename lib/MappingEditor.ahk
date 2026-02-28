@@ -7,6 +7,8 @@
 global APP_NAME
 global Mappings
 global MainGui
+global DEFAULT_REPEAT_DELAY
+global DEFAULT_REPEAT_INTERVAL
 
 ; GUI 控件引用（导出到 KeyCapture 模块）
 global EditModifierEdit
@@ -49,12 +51,12 @@ ShowEditMappingGui() {
     ; 触发延迟
     EditGui.AddText("x10 y145 w100 h23 +0x200", "触发延迟(ms):")
     global EditDelayEdit := EditGui.AddEdit("x110 y145 w80 h23 vRepeatDelay Number")
-    EditDelayEdit.Value := "300"
+    EditDelayEdit.Value := String(DEFAULT_REPEAT_DELAY)
 
     ; 触发间隔
     EditGui.AddText("x200 y145 w100 h23 +0x200", "触发间隔(ms):")
     global EditIntervalEdit := EditGui.AddEdit("x300 y145 w80 h23 vRepeatInterval Number")
-    EditIntervalEdit.Value := "50"
+    EditIntervalEdit.Value := String(DEFAULT_REPEAT_INTERVAL)
 
     ; 保留修饰键原始功能
     global EditPassthroughCB := EditGui.AddCheckbox("x10 y175 w370 h23 vPassthroughMod", "保留修饰键原始功能（手势/拖拽等不受影响）")
@@ -119,8 +121,8 @@ OnEditMappingOK(*) {
     mapping["SourceKey"] := sourceAhk
     mapping["TargetKey"] := targetAhk
     mapping["HoldRepeat"] := EditHoldRepeatCB.Value ? 1 : 0
-    mapping["RepeatDelay"] := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : 300
-    mapping["RepeatInterval"] := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : 50
+    mapping["RepeatDelay"] := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : DEFAULT_REPEAT_DELAY
+    mapping["RepeatInterval"] := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : DEFAULT_REPEAT_INTERVAL
     mapping["PassthroughMod"] := EditPassthroughCB.Value ? 1 : 0
 
     if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {

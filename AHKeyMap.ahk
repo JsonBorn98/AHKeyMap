@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.3.1
+;@Ahk2Exe-SetVersion 2.3.2
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,12 +18,19 @@ Persistent
 ; 全局变量（所有模块共享）
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.3.1"
+global APP_VERSION := "2.3.2"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
 global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global REG_VALUE_NAME := "AHKeyMap"
+
+; 定时器与默认值常量
+global CAPTURE_START_DELAY := 200       ; 按键捕获启动延迟（ms）
+global CAPTURE_POLL_INTERVAL := 30      ; 按键捕获轮询间隔（ms）
+global CONTEXT_MENU_DISMISS_DELAY := 10 ; 右键菜单抑制延迟（ms）
+global DEFAULT_REPEAT_DELAY := 300      ; 长按连续触发默认延迟（ms）
+global DEFAULT_REPEAT_INTERVAL := 50    ; 长按连续触发默认间隔（ms）
 
 ; 配置相关全局变量
 global AllConfigs := []

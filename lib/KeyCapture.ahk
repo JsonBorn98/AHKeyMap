@@ -12,6 +12,8 @@ global CaptureTimer
 global CaptureKeys
 global CaptureHadKeys
 global CaptureMouseKeys
+global CAPTURE_START_DELAY
+global CAPTURE_POLL_INTERVAL
 
 ; 编辑弹窗控件引用（从 MappingEditor 模块传入）
 global EditModifierEdit
@@ -139,8 +141,8 @@ StartCapture() {
     CaptureGui.AddText("x20 y45 w300 h20 Center cGray", "松开所有键后自动确认，按 Esc 取消")
     CaptureGui.Show("w340 h75")
 
-    ; 延迟 200ms 后再真正启用捕获，避免捕获到点击"捕获"按钮的鼠标事件
-    SetTimer(StartCaptureDelayed, -200)
+    ; 延迟后再真正启用捕获，避免捕获到点击"捕获"按钮的鼠标事件
+    SetTimer(StartCaptureDelayed, -CAPTURE_START_DELAY)
 }
 
 StartCaptureDelayed() {
@@ -165,7 +167,7 @@ StartCaptureDelayed() {
 
     ; 启动轮询定时器
     global CaptureTimer := CapturePolling
-    SetTimer(CaptureTimer, 30)
+    SetTimer(CaptureTimer, CAPTURE_POLL_INTERVAL)
 }
 
 RemoveAllCaptureHooks() {

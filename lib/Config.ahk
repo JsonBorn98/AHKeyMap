@@ -24,6 +24,8 @@ global ProcessText
 global StatusText
 global MappingLV
 global HotkeyConflicts
+global DEFAULT_REPEAT_DELAY
+global DEFAULT_REPEAT_INTERVAL
 
 ; ============================================================================
 ; 配置管理函数
@@ -102,8 +104,8 @@ LoadConfigData(configName) {
         mapping["SourceKey"] := sourceKey
         mapping["TargetKey"] := IniRead(configFile, section, "TargetKey", "")
         mapping["HoldRepeat"] := Integer(IniRead(configFile, section, "HoldRepeat", "0"))
-        mapping["RepeatDelay"] := Integer(IniRead(configFile, section, "RepeatDelay", "300"))
-        mapping["RepeatInterval"] := Integer(IniRead(configFile, section, "RepeatInterval", "50"))
+        mapping["RepeatDelay"] := Integer(IniRead(configFile, section, "RepeatDelay", String(DEFAULT_REPEAT_DELAY)))
+        mapping["RepeatInterval"] := Integer(IniRead(configFile, section, "RepeatInterval", String(DEFAULT_REPEAT_INTERVAL)))
         mapping["PassthroughMod"] := Integer(IniRead(configFile, section, "PassthroughMod", "0"))
         mappings.Push(mapping)
         idx++

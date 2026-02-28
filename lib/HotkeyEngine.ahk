@@ -14,6 +14,7 @@ global PassthroughHandlers
 global PassthroughSourceRegistered
 global AllProcessCheckers
 global HotkeyConflicts
+global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
 ; 热键引擎核心
@@ -397,7 +398,7 @@ PassthroughModUp(modKey, *) {
         ; ~ 前缀已经让物理事件通过，无法阻止
         ; 对于 RButton，松开可能触发右键菜单，用 Escape 关闭
         if (modKey = "RButton")
-            SetTimer(DismissContextMenu, -10)
+            SetTimer(DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
         return
     }
     ComboFiredState[modKey] := false
