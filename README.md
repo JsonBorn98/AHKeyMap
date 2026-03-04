@@ -74,3 +74,7 @@ PassthroughMod=1
 
 - 给 AI/自动化代理用的开发规范：`AGENTS.md`
 - 技术架构说明：`ARCHITECTURE.md`
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源。
