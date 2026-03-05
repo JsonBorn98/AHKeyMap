@@ -27,12 +27,15 @@ MakeProcessChecker(cfg) {
     mode := cfg["processMode"]
     if (mode = "include") {
         procList := cfg["processList"]
+        if (procList.Length = 0)
+            return ""
         return (*) => CheckIncludeMatch(procList)
     } else if (mode = "exclude") {
         exclList := cfg["excludeProcessList"]
+        if (exclList.Length = 0)
+            return ""
         return (*) => CheckExcludeMatch(exclList)
     }
-    ; global 模式不需要 HotIf 条件
     return ""
 }
 
@@ -47,12 +50,13 @@ CheckIncludeMatch(procList) {
 
 ; exclude 模式：前台窗口不在排除列表中时返回 true
 CheckExcludeMatch(exclList) {
-    try {
+    try
         fgProc := WinGetProcessName("A")
-        for procName in exclList {
-            if (fgProc = procName)
-                return false
-        }
+    catch
+        return false
+    for procName in exclList {
+        if (fgProc = procName)
+            return false
     }
     return true
 }
@@ -132,6 +136,11 @@ ReloadAllHotkeys() {
 }
 
 
+; 重载单个配置的热键（因修饰键共享状态，当前实现为全量重载）
+ReloadConfigHotkeys(configName := "") {
+    ReloadAllHotkeys()
+}
+
 ; 检测热键冲突：扫描所有已启用配置的映射，找出作用域重叠的重复热键
 ; 冲突规则：
 ;   global vs global/exclude → 冲突（作用域重叠）
@@ -142,7 +151,9 @@ DetectHotkeyConflicts() {
     global HotkeyConflicts := []
 
     ; 收集所有已启用配置的映射，附带作用域信息
-    allEntries := []  ; Array of {hotkey, configName, mappingIdx, mode, procKey}
+    hotkeyGroups := Map()
+    modUsageB := Map()
+    modUsageC := Map()
 
     for _, cfg in AllConfigs {
         if (!cfg["enabled"])
@@ -151,14 +162,9 @@ DetectHotkeyConflicts() {
             continue
 
         mode := cfg["processMode"]
-        ; procKey 用于 include 模式下区分不同进程列表
-        if (mode = "include")
-            procKey := cfg["process"]
-        else
-            procKey := ""
+        procKey := (mode = "include") ? cfg["process"] : ""
 
         for idx, mapping in cfg["mappings"] {
-            ; 构建热键字符串（与注册路径一致）
             modKey := mapping["ModifierKey"]
             sourceKey := mapping["SourceKey"]
             if (modKey = "")
@@ -168,36 +174,77 @@ DetectHotkeyConflicts() {
             else
                 hkStr := "~" modKey "+" sourceKey
 
-            allEntries.Push({
+            entry := {
                 hotkey: hkStr,
                 configName: cfg["name"],
                 mappingIdx: idx,
                 mode: mode,
                 procKey: procKey
-            })
+            }
+
+            if !hotkeyGroups.Has(hkStr)
+                hotkeyGroups[hkStr] := []
+            hotkeyGroups[hkStr].Push(entry)
+
+            ; 收集修饰键路径使用情况（用于跨路径 B/C 冲突检测）
+            if (modKey != "") {
+                scopeInfo := { configName: cfg["name"], mode: mode, procKey: procKey }
+                if (!mapping["PassthroughMod"]) {
+                    if !modUsageB.Has(modKey)
+                        modUsageB[modKey] := []
+                    modUsageB[modKey].Push(scopeInfo)
+                } else {
+                    if !modUsageC.Has(modKey)
+                        modUsageC[modKey] := []
+                    modUsageC[modKey].Push(scopeInfo)
+                }
+            }
         }
     }
 
-    ; 两两比较，检测作用域重叠的相同热键
-    count := allEntries.Length
-    i := 1
-    while (i <= count) {
-        j := i + 1
-        while (j <= count) {
-            a := allEntries[i]
-            b := allEntries[j]
-            if (a.hotkey = b.hotkey && ScopesOverlap(a.mode, a.procKey, b.mode, b.procKey)) {
-                HotkeyConflicts.Push({
-                    hotkey: a.hotkey,
-                    config1: a.configName,
-                    idx1: a.mappingIdx,
-                    config2: b.configName,
-                    idx2: b.mappingIdx
-                })
+    ; 按热键分组比较，只在同组内检测作用域重叠
+    for _, group in hotkeyGroups {
+        if (group.Length < 2)
+            continue
+        i := 1
+        while (i <= group.Length) {
+            j := i + 1
+            while (j <= group.Length) {
+                a := group[i]
+                b := group[j]
+                if ScopesOverlap(a.mode, a.procKey, b.mode, b.procKey) {
+                    HotkeyConflicts.Push({
+                        hotkey: a.hotkey,
+                        config1: a.configName,
+                        idx1: a.mappingIdx,
+                        config2: b.configName,
+                        idx2: b.mappingIdx
+                    })
+                }
+                j++
             }
-            j++
+            i++
         }
-        i++
+    }
+
+    ; 检测跨路径 B/C 修饰键冲突（同一修饰键在拦截和透传模式下同时使用）
+    for modKey, bEntries in modUsageB {
+        if !modUsageC.Has(modKey)
+            continue
+        cEntries := modUsageC[modKey]
+        for _, bEntry in bEntries {
+            for _, cEntry in cEntries {
+                if ScopesOverlap(bEntry.mode, bEntry.procKey, cEntry.mode, cEntry.procKey) {
+                    HotkeyConflicts.Push({
+                        hotkey: modKey " (拦截/透传冲突)",
+                        config1: bEntry.configName,
+                        idx1: 0,
+                        config2: cEntry.configName,
+                        idx2: 0
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -271,6 +318,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
 
     hkInfo := Map()
     hkInfo["checker"] := checker
+    hkInfo["configName"] := configName
 
     if (modKey = "")
         RegisterPathA(mapping, hkInfo, uniqueIdx)
@@ -341,6 +389,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             modHkInfo := Map()
             modHkInfo["key"] := modKey
             modHkInfo["checker"] := checker
+            modHkInfo["configName"] := configName
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
         } catch as e {
@@ -370,13 +419,13 @@ RegisterPathC(mapping, hkInfo, checker, configName) {
     ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
     modRegKey := (checker != "" ? configName : "") "|" modKey
     if !PassthroughModKeys.Has(modRegKey) {
-        SetupPassthroughModKey(modKey, checker)
+        SetupPassthroughModKey(modKey, checker, configName)
         PassthroughModKeys[modRegKey] := true
     }
 }
 
 ; 设置状态追踪式修饰键的按下/松开监控
-SetupPassthroughModKey(modKey, checker := "") {
+SetupPassthroughModKey(modKey, checker := "", configName := "") {
     ComboFiredState[modKey] := false
 
     downCb := PassthroughModDown.Bind(modKey)
@@ -388,11 +437,11 @@ SetupPassthroughModKey(modKey, checker := "") {
         HotkeyRegErrors.Push("~" modKey)
     }
 
-    ; 记录用于卸载
     modHkInfo := Map()
     modHkInfo["key"] := "~" modKey
     modHkInfo["keyUp"] := "~" modKey " Up"
     modHkInfo["checker"] := checker
+    modHkInfo["configName"] := configName
     ActiveHotkeys.Push(modHkInfo)
 }
 
@@ -459,9 +508,18 @@ StartRepeat(idx, timerFn, interval, *) {
         SetTimer(timerFn, interval)
 }
 
-RepeatTimerCallback(sendKey, sourceKey, idx, *) {
+RepeatTimerCallback(sendKey, sourceKey, idx, modKey := "", *) {
+    ; 路径 C：检查修饰键是否仍被按住
+    if (modKey != "" && !GetKeyState(modKey, "P")) {
+        if HoldTimers.Has(idx) {
+            if (HoldTimers[idx].HasProp("fn"))
+                SetTimer(HoldTimers[idx].fn, 0)
+            HoldTimers[idx].active := false
+            HoldTimers.Delete(idx)
+        }
+        return
+    }
     ; 安全检查：如果源按键已松开（非滚轮键），自动停止定时器
-    ; 去除修饰键前缀（^ + ! #），GetKeyState 只接受纯按键名
     baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
     if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
         if HoldTimers.Has(idx) {
@@ -512,13 +570,11 @@ PassthroughSourceHandler(groupKey, *) {
             ComboFiredState[h.modKey] := true
 
             if (h.holdRepeat) {
-                ; 长按连续触发
-                ; 提取 sourceKey（从 groupKey "configName|sourceKey"）
                 _parts := StrSplit(groupKey, "|",, 2)
                 _srcKey := _parts.Length >= 2 ? _parts[2] : ""
                 sendKey := KeyToSendFormat(h.targetKey)
                 Send(sendKey)
-                timerFn := RepeatTimerCallback.Bind(sendKey, _srcKey, h.idx)
+                timerFn := RepeatTimerCallback.Bind(sendKey, _srcKey, h.idx, h.modKey)
                 startFn := StartRepeat.Bind(h.idx, timerFn, h.repeatInterval)
                 HoldTimers[h.idx] := { fn: timerFn, startFn: startFn, interval: h.repeatInterval, active: true }
                 SetTimer(startFn, -h.repeatDelay)

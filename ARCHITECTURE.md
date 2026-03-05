@@ -10,12 +10,12 @@
 
 ## 模块职责
 - `AHKeyMap.ahk`：全局变量初始化、模块 `#Include`、启动入口
-- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
+- `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
 - `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理
 - `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `lib/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `lib/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
-- `lib/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B/C 分别由 `RegisterPathA/B/C` 实现
+- `lib/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B/C 分别由 `RegisterPathA/B/C` 实现；冲突检测包含跨路径 B/C 修饰键冲突
 - `lib/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
 ## 全局变量管理
@@ -68,6 +68,10 @@
 - `OnMessage` 捕获鼠标按键/滚轮
 - “松开时确认”机制：全部松开后确认组合键
 - 捕获开始时延迟 200ms，避免误捕点击事件
+- 捕获窗口失焦时自动取消，防止后台误捕
+
+## 配置名限制
+- 不允许包含 `\ / : * ? " < > | = [ ]`（用于文件名和 INI 键名，特殊字符会导致文件创建失败或数据损坏）。
 
 ## 已知限制（维护者需知）
 - 路径 C 的右键菜单抑制使用延迟发送 Escape，可能存在副作用。

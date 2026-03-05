@@ -9,13 +9,13 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 
 ## Repo map
 - `AHKeyMap.ahk` — main entry, global variable initialization, named constants, `#Include` list, startup
-- `lib/Config.ahk` (~359 lines) — config load/save (atomic write), config list management, enabled state persistence
-- `lib/Utils.ahk` (~213 lines) — key display conversion, process picker, auto-start utilities
-- `lib/HotkeyEngine.ahk` (~536 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C)
-- `lib/KeyCapture.ahk` (~472 lines) — key capture mechanism (polling + mouse hook)
+- `lib/Config.ahk` (~367 lines) — config load/save (atomic write), config list management, enabled state persistence
+- `lib/Utils.ahk` (~222 lines) — key display conversion, process picker (with dedup), auto-start utilities
+- `lib/HotkeyEngine.ahk` (~592 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C), conflict detection (including cross-path B/C)
+- `lib/KeyCapture.ahk` (~480 lines) — key capture mechanism (polling + mouse hook, auto-cancel on focus loss)
 - `lib/GuiMain.ahk` (~161 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
-- `lib/MappingEditor.ahk` (~138 lines) — mapping edit dialog and key capture entry
-- `lib/GuiEvents.ahk` (~390 lines) — GUI event handlers (config CRUD, scope editing)
+- `lib/MappingEditor.ahk` (~146 lines) — mapping edit dialog, key capture entry, repeat parameter validation
+- `lib/GuiEvents.ahk` (~400 lines) — GUI event handlers (config CRUD, scope editing, config name validation)
 - `configs/` — runtime INI files (gitignored)
 - `build.bat` — compile script for Ahk2Exe
 - `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `*.bak`, `*.tmp`, `.claude/`
@@ -124,20 +124,24 @@ Boundaries:
 
 ### Hotkey engine conventions
 - Three registration paths: A (no modifier), B (intercept combo), C (passthrough combo).
+- `ReloadConfigHotkeys(configName)` for single-config reload (currently delegates to full reload).
 - Process-scoped hotkeys use `HotIf` + `MakeProcessChecker` closures.
+- Empty include/exclude lists are treated as global scope.
 - Priority: include > exclude > global.
 - Keep `AllProcessCheckers` references alive to prevent GC of closures.
 - Clean up timers/handlers in `UnregisterAllHotkeys`.
+- Cross-path B/C modifier conflicts are detected when the same modifier key is used in both intercept and passthrough modes with overlapping scopes.
 
 ### Config / INI conventions
 - Each config: standalone `.ini` in `configs/`.
-- `SaveConfig` uses atomic write: writes to `.tmp` first, then replaces original.
+- `SaveConfig` and `SaveEnabledStates` both use atomic write: writes to `.tmp` first, then replaces original.
 - INI sections: `[Meta]` then `[Mapping1]`, `[Mapping2]`, ...
 - Mapping keys: `ModifierKey`, `SourceKey`, `TargetKey`, `HoldRepeat`,
   `RepeatDelay`, `RepeatInterval`, `PassthroughMod`.
 - `_state.ini` sections: `[State]` (LastConfig) and `[EnabledConfigs]`.
 - `ProcessMode` values: `global`, `include`, `exclude`.
 - Process lists: `|`-separated in INI, converted to arrays in code.
+- Config names must not contain `\ / : * ? " < > | = [ ]`.
 - Use default values in `IniRead` for backward compatibility.
 
 ### Performance

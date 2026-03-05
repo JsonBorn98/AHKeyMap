@@ -192,22 +192,20 @@ ParseProcessList(procStr) {
     return result
 }
 
-; 格式化进程作用域为显示文本
-FormatProcessDisplay(processMode, process, excludeProcess) {
+; 格式化进程作用域为显示文本（接受已解析的数组）
+FormatProcessDisplay(processMode, processList, excludeProcessList) {
     if (processMode = "include") {
-        list := ParseProcessList(process)
-        if (list.Length = 0)
+        if (processList.Length = 0)
             return "作用域: 全局"
-        if (list.Length = 1)
-            return "作用域: 仅 " list[1]
-        return "作用域: 仅 " list[1] " 等" list.Length "个"
+        if (processList.Length = 1)
+            return "作用域: 仅 " processList[1]
+        return "作用域: 仅 " processList[1] " 等" processList.Length "个"
     } else if (processMode = "exclude") {
-        list := ParseProcessList(excludeProcess)
-        if (list.Length = 0)
+        if (excludeProcessList.Length = 0)
             return "作用域: 全局"
-        if (list.Length = 1)
-            return "作用域: 排除 " list[1]
-        return "作用域: 排除 " list[1] " 等" list.Length "个"
+        if (excludeProcessList.Length = 1)
+            return "作用域: 排除 " excludeProcessList[1]
+        return "作用域: 排除 " excludeProcessList[1] " 等" excludeProcessList.Length "个"
     }
     return "作用域: 全局"
 }
@@ -236,13 +234,12 @@ UpdateStatusText() {
 
 ; 加载指定配置到 GUI 编辑区域（不影响热键注册）
 LoadConfigToGui(configName) {
-    global CurrentConfigName := configName
-    global CurrentConfigFile := CONFIG_DIR "\" configName ".ini"
-    global Mappings := []
-
     idx := FindConfigIndex(configName)
     if (idx = 0)
         return
+
+    global CurrentConfigName := configName
+    global CurrentConfigFile := CONFIG_DIR "\" configName ".ini"
 
     cfg := AllConfigs[idx]
     global CurrentProcessMode := cfg["processMode"]
@@ -252,7 +249,6 @@ LoadConfigToGui(configName) {
     global CurrentExcludeProcessList := cfg["excludeProcessList"]
     global CurrentConfigEnabled := cfg["enabled"]
 
-    ; 复制映射数据到 GUI 编辑用的 Mappings
     global Mappings := []
     for _, m in cfg["mappings"] {
         newM := Map()
@@ -261,7 +257,7 @@ LoadConfigToGui(configName) {
         Mappings.Push(newM)
     }
 
-    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcess, CurrentExcludeProcess)
+    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcessList, CurrentExcludeProcessList)
     EnabledCB.Value := CurrentConfigEnabled
     EnabledCB.Enabled := true
 
@@ -278,25 +274,26 @@ SaveConfig() {
 
     tempFile := CurrentConfigFile ".tmp"
 
-    ; 第一步：将全部内容写入临时文件，原文件暂不改动
+    ; 第一步：将全部内容写入临时文件（按节批量写入）
     try {
         if FileExist(tempFile)
             FileDelete(tempFile)
 
-        IniWrite(CurrentConfigName, tempFile, "Meta", "Name")
-        IniWrite(CurrentProcessMode, tempFile, "Meta", "ProcessMode")
-        IniWrite(CurrentProcess, tempFile, "Meta", "Process")
-        IniWrite(CurrentExcludeProcess, tempFile, "Meta", "ExcludeProcess")
+        metaPairs := "Name=" CurrentConfigName
+        metaPairs .= "`nProcessMode=" CurrentProcessMode
+        metaPairs .= "`nProcess=" CurrentProcess
+        metaPairs .= "`nExcludeProcess=" CurrentExcludeProcess
+        IniWrite(metaPairs, tempFile, "Meta")
 
         for idx, mapping in Mappings {
-            section := "Mapping" idx
-            IniWrite(mapping["ModifierKey"], tempFile, section, "ModifierKey")
-            IniWrite(mapping["SourceKey"], tempFile, section, "SourceKey")
-            IniWrite(mapping["TargetKey"], tempFile, section, "TargetKey")
-            IniWrite(mapping["HoldRepeat"], tempFile, section, "HoldRepeat")
-            IniWrite(mapping["RepeatDelay"], tempFile, section, "RepeatDelay")
-            IniWrite(mapping["RepeatInterval"], tempFile, section, "RepeatInterval")
-            IniWrite(mapping["PassthroughMod"], tempFile, section, "PassthroughMod")
+            pairs := "ModifierKey=" mapping["ModifierKey"]
+            pairs .= "`nSourceKey=" mapping["SourceKey"]
+            pairs .= "`nTargetKey=" mapping["TargetKey"]
+            pairs .= "`nHoldRepeat=" mapping["HoldRepeat"]
+            pairs .= "`nRepeatDelay=" mapping["RepeatDelay"]
+            pairs .= "`nRepeatInterval=" mapping["RepeatInterval"]
+            pairs .= "`nPassthroughMod=" mapping["PassthroughMod"]
+            IniWrite(pairs, tempFile, "Mapping" idx)
         }
     } catch as e {
         ; 写临时文件失败，原文件未动，清理残留 tmp
@@ -319,15 +316,26 @@ SaveConfig() {
     SaveEnabledStates()
 }
 
-; 保存所有配置的启用状态到 _state.ini
+; 保存所有配置的启用状态到 _state.ini（原子写入）
 SaveEnabledStates() {
-    ; 先清理旧键，避免已删除配置残留在 _state.ini
-    try IniDelete(STATE_FILE, "EnabledConfigs")
-
+    tempFile := STATE_FILE ".tmp"
     try {
+        if FileExist(tempFile)
+            FileDelete(tempFile)
+
+        ; 保留 [State] 节
+        lastConfig := ""
+        if FileExist(STATE_FILE)
+            lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
+        if (lastConfig != "")
+            IniWrite(lastConfig, tempFile, "State", "LastConfig")
+
         for _, cfg in AllConfigs
-            IniWrite(cfg["enabled"] ? "1" : "0", STATE_FILE, "EnabledConfigs", cfg["name"])
+            IniWrite(cfg["enabled"] ? "1" : "0", tempFile, "EnabledConfigs", cfg["name"])
+
+        FileMove(tempFile, STATE_FILE, 1)
     } catch as e {
+        try FileDelete(tempFile)
         MsgBox("保存启用状态失败：" e.Message, APP_NAME, "IconX")
     }
 }

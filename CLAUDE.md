@@ -34,9 +34,9 @@ Config.ahk → Utils.ahk → HotkeyEngine.ahk → KeyCapture.ahk
 ```
 
 **Module responsibilities:**
-- `Config.ahk` — load/save INI configs (atomic write via `.tmp`), enabled-state persistence
-- `HotkeyEngine.ahk` — hotkey register/unregister, three registration paths (A/B/C)
-- `KeyCapture.ahk` — key capture (polling + mouse hook), 200ms startup delay
+- `Config.ahk` — load/save INI configs (atomic write via `.tmp`), enabled-state persistence (also atomic)
+- `HotkeyEngine.ahk` — hotkey register/unregister, three registration paths (A/B/C), cross-path B/C conflict detection
+- `KeyCapture.ahk` — key capture (polling + mouse hook), 200ms startup delay, auto-cancel on focus loss
 - `GuiMain.ahk` — window construction, tray menu, modal helpers
 - `GuiEvents.ahk` — all GUI event handlers (CRUD, scope editing)
 - `MappingEditor.ahk` — mapping edit dialog
@@ -72,7 +72,7 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
 - **Naming**: `PascalCase` functions/globals, `camelCase` locals, `UPPER_SNAKE` constants.
 - **Indent**: 4 spaces, no tabs. Strings use double quotes.
 - **Data**: `Map()` for key/value, arrays for ordered lists.
-- **File writes**: always use atomic pattern (write `.tmp` then `FileMove`); see `SaveConfig`.
+- **File writes**: always use atomic pattern (write `.tmp` then `FileMove`); see `SaveConfig` and `SaveEnabledStates`.
 - **HotIf**: always reset `HotIf()` after temporary use.
 - **GUI**: use `CreateModalGui`/`DestroyModalGui` helpers; UI strings are Chinese.
 - **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`.

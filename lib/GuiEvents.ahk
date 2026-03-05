@@ -41,7 +41,7 @@ OnToggleEnabled(ctrl, *) {
     global CurrentConfigEnabled := ctrl.Value ? true : false
     SyncCurrentToAllConfigs()
     SaveEnabledStates()
-    ReloadAllHotkeys()
+    ReloadConfigHotkeys(CurrentConfigName)
     UpdateStatusText()
 }
 
@@ -81,6 +81,11 @@ OnNewConfigOK(newGui, *) {
 
     if (configName = "") {
         MsgBox("请输入配置名称", APP_NAME, "Icon!")
+        return
+    }
+
+    if RegExMatch(configName, '[\\/:*?"<>|=\[\]]') {
+        MsgBox("配置名称不能包含以下字符：\ / : * ? `" < > | = [ ]", APP_NAME, "Icon!")
         return
     }
 
@@ -144,6 +149,11 @@ OnCopyConfigOK(copyGui, *) {
 
     if (newName = "") {
         MsgBox("请输入配置名称", APP_NAME, "Icon!")
+        return
+    }
+
+    if RegExMatch(newName, '[\\/:*?"<>|=\[\]]') {
+        MsgBox("配置名称不能包含以下字符：\ / : * ? `" < > | = [ ]", APP_NAME, "Icon!")
         return
     }
 
@@ -272,10 +282,10 @@ OnChangeProcessOK(changeGui, *) {
         global CurrentExcludeProcessList := []
     }
 
-    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcess, CurrentExcludeProcess)
+    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcessList, CurrentExcludeProcessList)
 
     SaveConfig()
-    ReloadAllHotkeys()
+    ReloadConfigHotkeys(CurrentConfigName)
     DestroyModalGui(changeGui)
 }
 
@@ -333,7 +343,7 @@ OnCopyMapping(*) {
 
     SaveConfig()
     RefreshMappingLV()
-    ReloadAllHotkeys()
+    ReloadConfigHotkeys(CurrentConfigName)
 
     newIdx := Mappings.Length
     MappingLV.Modify(newIdx, "Select Focus Vis")
@@ -358,7 +368,7 @@ OnDeleteMapping(*) {
         Mappings.RemoveAt(rowNum)
         SaveConfig()
         RefreshMappingLV()
-        ReloadAllHotkeys()
+        ReloadConfigHotkeys(CurrentConfigName)
     }
 }
 

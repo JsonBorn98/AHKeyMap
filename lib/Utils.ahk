@@ -130,12 +130,21 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
 
     if (selected.Length > 0) {
         if (isMultiLine) {
-            ; 多行模式：追加到现有内容
             existing := targetEdit.Value
+            ; 收集已有进程名用于去重
+            existingSet := Map()
+            loop parse existing, "`n", "`r" {
+                t := Trim(A_LoopField)
+                if (t != "")
+                    existingSet[t] := true
+            }
             for proc in selected {
+                if existingSet.Has(proc)
+                    continue
                 if (existing != "" && SubStr(existing, -1) != "`n")
                     existing .= "`n"
                 existing .= proc
+                existingSet[proc] := true
             }
             targetEdit.Value := existing
         } else {
@@ -204,7 +213,7 @@ IsAutoStartEnabled() {
 }
 
 EnableAutoStart() {
-    exePath := A_IsCompiled ? A_ScriptFullPath : (A_AhkPath ' "' A_ScriptFullPath '"')
+    exePath := A_IsCompiled ? ('"' A_ScriptFullPath '"') : ('"' A_AhkPath '" "' A_ScriptFullPath '"')
     RegWrite(exePath, "REG_SZ", REG_RUN_KEY, REG_VALUE_NAME)
 }
 

@@ -7,6 +7,7 @@
 global APP_NAME
 global Mappings
 global MainGui
+global CurrentConfigName
 global DEFAULT_REPEAT_DELAY
 global DEFAULT_REPEAT_INTERVAL
 
@@ -116,13 +117,20 @@ OnEditMappingOK(*) {
         return
     }
 
+    repeatDelay := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : DEFAULT_REPEAT_DELAY
+    repeatInterval := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : DEFAULT_REPEAT_INTERVAL
+    if (repeatDelay < 10)
+        repeatDelay := 10
+    if (repeatInterval < 10)
+        repeatInterval := 10
+
     mapping := Map()
     mapping["ModifierKey"] := modifierAhk
     mapping["SourceKey"] := sourceAhk
     mapping["TargetKey"] := targetAhk
     mapping["HoldRepeat"] := EditHoldRepeatCB.Value ? 1 : 0
-    mapping["RepeatDelay"] := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : DEFAULT_REPEAT_DELAY
-    mapping["RepeatInterval"] := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : DEFAULT_REPEAT_INTERVAL
+    mapping["RepeatDelay"] := repeatDelay
+    mapping["RepeatInterval"] := repeatInterval
     mapping["PassthroughMod"] := EditPassthroughCB.Value ? 1 : 0
 
     if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {
@@ -133,6 +141,6 @@ OnEditMappingOK(*) {
 
     SaveConfig()
     RefreshMappingLV()
-    ReloadAllHotkeys()
+    ReloadConfigHotkeys(CurrentConfigName)
     DestroyModalGui(EditGui)
 }

@@ -193,6 +193,14 @@ CapturePolling() {
     if !IsCapturing
         return
 
+    ; 捕获窗口失焦时自动取消
+    try {
+        if (CaptureGui != "" && !WinActive("ahk_id " CaptureGui.Hwnd)) {
+            CancelCapture()
+            return
+        }
+    }
+
     ; 收集当前按住的键
     currentModifiers := Map()   ; 归一化后的修饰键 prefix -> display name
     currentKeys := []           ; 非修饰键列表
