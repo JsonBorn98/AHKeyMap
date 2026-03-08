@@ -239,8 +239,11 @@ RegisterConfigHotkeys(cfg) {
             continue
 
         srcKey := mapping["SourceKey"]
-        ; 使用配置名+sourceKey 作为键，避免跨配置冲突
-        groupKey := cfg["name"] "|" srcKey
+        ; 分组键与注册去重键保持一致：
+        ; - include/exclude: configName|sourceKey（按配置隔离）
+        ; - global: |sourceKey（跨配置聚合，避免仅首个配置生效）
+        groupPrefix := (cfg["processMode"] = "global") ? "" : cfg["name"]
+        groupKey := groupPrefix "|" srcKey
         if !PassthroughHandlers.Has(groupKey)
             PassthroughHandlers[groupKey] := []
 
@@ -353,17 +356,18 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
 RegisterPathC(mapping, hkInfo, checker, configName) {
     modKey := mapping["ModifierKey"]
     sourceKey := mapping["SourceKey"]
-    groupKey := configName "|" sourceKey
+    sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
     srcRegKey := (checker != "" ? configName : "") "|" sourceKey
+    groupKey := srcRegKey
 
-    hkInfo["key"] := sourceKey
+    hkInfo["key"] := sourceHotkey
 
     if !PassthroughSourceRegistered.Has(srcRegKey) {
         try {
-            Hotkey(sourceKey, PassthroughSourceHandler.Bind(groupKey), "On")
+            Hotkey(sourceHotkey, PassthroughSourceHandler.Bind(groupKey), "On")
             PassthroughSourceRegistered[srcRegKey] := true
         } catch as e {
-            HotkeyRegErrors.Push(sourceKey)
+            HotkeyRegErrors.Push(sourceHotkey)
         }
     }
 

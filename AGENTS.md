@@ -6,6 +6,7 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 ## Sources of truth
 - Project architecture: `ARCHITECTURE.md`
 - No Cursor rules or Copilot instructions are present in the repo.
+- Deferred bugs backlog: `BUG_BACKLOG.md` (read before new bug-fix tasks)
 
 ## Repo map
 - `AHKeyMap.ahk` — main entry, global variable initialization, named constants, `#Include` list, startup
