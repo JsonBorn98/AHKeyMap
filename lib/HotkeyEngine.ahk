@@ -134,10 +134,10 @@ ReloadAllHotkeys() {
 
 ; 检测热键冲突：扫描所有已启用配置的映射，找出作用域重叠的重复热键
 ; 冲突规则：
-;   global vs global/exclude → 冲突（作用域重叠）
+;   global 与任意非空作用域 → 冲突（作用域重叠）
 ;   exclude vs exclude → 冲突（保守策略，排除列表不同也可能重叠）
-;   include vs include（相同进程列表）→ 冲突
-;   include vs 其他 → 不冲突（include 优先级最高，独立生效）
+;   include vs include（进程列表有交集）→ 冲突
+;   include vs global：include 非空即冲突
 DetectHotkeyConflicts() {
     global HotkeyConflicts := []
 
@@ -153,7 +153,9 @@ DetectHotkeyConflicts() {
         mode := cfg["processMode"]
         ; procKey 用于 include 模式下区分不同进程列表
         if (mode = "include")
-            procKey := cfg["process"]
+            procKey := CanonicalizeProcessScope(cfg["process"])
+        else if (mode = "exclude")
+            procKey := CanonicalizeProcessScope(cfg["excludeProcess"])
         else
             procKey := ""
 
@@ -201,20 +203,130 @@ DetectHotkeyConflicts() {
     }
 }
 
+; 将 include 进程列表规范化为可比较的键：
+; trim、去重、转小写、排序，然后以 | 连接
+CanonicalizeProcessScope(procStr) {
+    procSet := Map()
+    loop parse procStr, "|" {
+        procName := StrLower(Trim(A_LoopField))
+        if (procName != "")
+            procSet[procName] := true
+    }
+
+    if (procSet.Count = 0)
+        return ""
+
+    procList := []
+    for procName, _ in procSet
+        procList.Push(procName)
+
+    ; 小数组场景下使用简单排序，避免引入额外依赖
+    i := 1
+    while (i < procList.Length) {
+        j := i + 1
+        while (j <= procList.Length) {
+            if (StrCompare(procList[j], procList[i]) < 0) {
+                tmp := procList[i]
+                procList[i] := procList[j]
+                procList[j] := tmp
+            }
+            j++
+        }
+        i++
+    }
+
+    result := ""
+    for _, procName in procList {
+        if (result != "")
+            result .= "|"
+        result .= procName
+    }
+    return result
+}
+
+; 判断两个 include 作用域是否有交集
+IncludeScopesOverlap(procKey1, procKey2) {
+    if (procKey1 = "" || procKey2 = "")
+        return false
+
+    list1 := StrSplit(procKey1, "|")
+    list2 := StrSplit(procKey2, "|")
+
+    ; 先将较短列表建集合，减少查找次数
+    if (list1.Length > list2.Length) {
+        tmp := list1
+        list1 := list2
+        list2 := tmp
+    }
+
+    procSet := Map()
+    for _, procName in list1
+        procSet[procName] := true
+
+    for _, procName in list2 {
+        if (procSet.Has(procName))
+            return true
+    }
+    return false
+}
+
+; 判断 include 作用域与 exclude 作用域是否有交集
+; 条件：include 中至少有一个进程不在 exclude 列表里
+IncludeVsExcludeOverlap(includeKey, excludeKey) {
+    if (includeKey = "")
+        return false
+    if (excludeKey = "")
+        return true
+
+    excludeSet := ScopeKeyToSet(excludeKey)
+    loop parse includeKey, "|" {
+        procName := A_LoopField
+        if (!excludeSet.Has(procName))
+            return true
+    }
+    return false
+}
+
+; 将 scopeKey（a.exe|b.exe）解析为集合 Map
+ScopeKeyToSet(scopeKey) {
+    procSet := Map()
+    if (scopeKey = "")
+        return procSet
+
+    loop parse scopeKey, "|" {
+        procName := A_LoopField
+        if (procName != "")
+            procSet[procName] := true
+    }
+    return procSet
+}
+
 ; 判断两个作用域是否存在重叠
-; include 与非 include 不重叠（include 优先级最高，独立匹配）
-; include 与 include 仅在进程列表相同时重叠
-; global/exclude 之间总是重叠（保守策略）
+; 判定原则：两个作用域在任一进程下可能同时生效，则视为重叠
+; include/include：有交集才重叠
+; include/exclude：include 中存在未排除进程时重叠（global 与除空 include 外的任意作用域重叠）
 ScopesOverlap(mode1, procKey1, mode2, procKey2) {
-    ; include 与非 include → 不重叠
-    if (mode1 = "include" && mode2 != "include")
-        return false
-    if (mode2 = "include" && mode1 != "include")
-        return false
-    ; 两个都是 include → 进程列表相同才重叠
+    ; include/include：有交集才重叠
     if (mode1 = "include" && mode2 = "include")
-        return (procKey1 = procKey2)
-    ; global/exclude 之间 → 总是重叠
+        return IncludeScopesOverlap(procKey1, procKey2)
+
+    ; include/global：include 非空即与 global 重叠
+    if (mode1 = "include" && mode2 = "global")
+        return (procKey1 != "")
+    if (mode2 = "include" && mode1 = "global")
+        return (procKey2 != "")
+
+    ; include/exclude：include 中存在未排除进程时重叠
+    if (mode1 = "include" && mode2 = "exclude")
+        return IncludeVsExcludeOverlap(procKey1, procKey2)
+    if (mode2 = "include" && mode1 = "exclude")
+        return IncludeVsExcludeOverlap(procKey2, procKey1)
+
+    ; global 与 exclude/global 一律视为重叠
+    if (mode1 = "global" || mode2 = "global")
+        return true
+
+    ; exclude/exclude：保守视为重叠
     return true
 }
 
@@ -538,3 +650,9 @@ PassthroughSourceHandler(groupKey, *) {
     sourceKey := parts.Length >= 2 ? parts[2] : groupKey
     Send(KeyToSendFormat(sourceKey))
 }
+
+
+
+
+
+

@@ -173,7 +173,7 @@ RefreshConfigList(selectName := "") {
         ProcessText.Value := "作用域: 无配置"
         EnabledCB.Value := 0
         EnabledCB.Enabled := false
-        Mappings := []
+        global Mappings := []
         RefreshMappingLV()
     }
     UpdateStatusText()
@@ -357,3 +357,6 @@ RefreshMappingLV() {
     loop 8
         MappingLV.ModifyCol(A_Index, "AutoHdr")
 }
+
+
+

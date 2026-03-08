@@ -186,7 +186,7 @@ OnDeleteConfig(*) {
         idx := FindConfigIndex(CurrentConfigName)
         if (idx > 0)
             AllConfigs.RemoveAt(idx)
-
+        SaveEnabledStates()
         global CurrentConfigName := ""
         global CurrentConfigFile := ""
         global Mappings := []
@@ -388,3 +388,5 @@ ProcTextToStr(rawText) {
     }
     return procStr
 }
+
+
