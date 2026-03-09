@@ -228,7 +228,11 @@ UpdateStatusText() {
         statusStr .= "  ⚠ " HotkeyRegErrors.Length " 个热键注册失败"
         hasWarning := true
     }
-    StatusText.SetFont(hasWarning ? "cE07B00" : "cGray")
+    ; 有警告时：橙色 + 下划线，提示可点击
+    if (hasWarning)
+        StatusText.SetFont("cE07B00 underline")
+    else
+        StatusText.SetFont("cGray")
     StatusText.Value := statusStr
 }
 

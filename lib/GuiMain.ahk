@@ -47,6 +47,7 @@ BuildMainGui() {
     MainGui.AddButton("x400 y9 w50 h25", "删除").OnEvent("Click", OnDeleteConfig)
     MainGui.AddButton("x455 y9 w70 h25", "作用域").OnEvent("Click", OnChangeProcess)
 
+    ; 作用域文本：宽度自适应，右对齐
     global ProcessText := MainGui.AddText("x530 y10 w180 h23 +0x200", "作用域: 无配置")
 
     ; --- 映射列表 ---
@@ -101,12 +102,17 @@ OnMainResize(thisGui, minMax, width, height) {
     ; 布局常量
     topH := 45      ; 顶栏区域高度（y=0 到 ListView 起始）
     bottomH := 45   ; 底栏区域高度
-    margin := 10     ; 水平边距
+    margin := 10    ; 水平边距
 
     ; ListView：自适应填充中间区域
     lvW := width - margin * 2
     lvH := height - topH - bottomH - margin
     MappingLV.Move(,, lvW, lvH)
+
+    ; 顶栏作用域文本：宽度自适应
+    processTextX := 530
+    processTextW := width - processTextX - margin
+    ProcessText.Move(,, processTextW)
 
     ; 底栏 y 坐标：窗口高 - 底栏偏移
     btnY := height - bottomH + 5
