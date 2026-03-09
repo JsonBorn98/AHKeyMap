@@ -11,7 +11,7 @@
 ## 模块职责
 - `AHKeyMap.ahk`：全局变量初始化、模块 `#Include`、启动入口
 - `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
-- `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理
+- `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
 - `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `lib/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `lib/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
@@ -82,3 +82,4 @@
 - `build.bat` 自动寻找 Ahk2Exe 与 AutoHotkey v2 base。
 - 编译命令等效于：
   `Ahk2Exe.exe /in "AHKeyMap.ahk" /out "AHKeyMap.exe" /icon "icon.ico" /base "...\AutoHotkey64.exe"`
+
