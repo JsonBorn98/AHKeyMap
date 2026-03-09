@@ -3,3 +3,4 @@ configs/
 *.bak
 *.tmp
 .claude/
+.cursor/
