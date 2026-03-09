@@ -22,6 +22,8 @@ global ConfigDDL
 global EnabledCB
 global ProcessText
 global StatusText
+global StatusDetailLink
+global StatusHasWarning
 global MappingLV
 global HotkeyConflicts
 global HotkeyRegErrors
@@ -218,6 +220,7 @@ UpdateStatusText() {
         if (cfg["enabled"])
             enabledCount++
     }
+
     statusStr := "已启用 " enabledCount "/" totalCount " 个配置"
     hasWarning := false
     if (HotkeyConflicts.Length > 0) {
@@ -228,11 +231,17 @@ UpdateStatusText() {
         statusStr .= "  ⚠ " HotkeyRegErrors.Length " 个热键注册失败"
         hasWarning := true
     }
-    ; 有警告时：橙色 + 下划线，提示可点击
-    if (hasWarning)
-        StatusText.SetFont("cE07B00 underline")
-    else
+
+    ; 有警告时：状态文字变橙色，并显示右侧详情入口
+    global StatusHasWarning := hasWarning
+    if (hasWarning) {
+        StatusText.SetFont("cE07B00")
+        StatusDetailLink.Opt("-Hidden")
+    } else {
         StatusText.SetFont("cGray")
+        StatusDetailLink.Opt("+Hidden")
+        SetStatusDetailHover(false)
+    }
     StatusText.Value := statusStr
 }
 
@@ -369,6 +378,4 @@ RefreshMappingLV() {
     loop 8
         MappingLV.ModifyCol(A_Index, "AutoHdr")
 }
-
-
 

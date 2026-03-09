@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.3.9
+;@Ahk2Exe-SetVersion 2.4.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,7 +18,7 @@ Persistent
 ; 全局变量（所有模块共享）
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.3.9"
+global APP_VERSION := "2.4.0"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
@@ -51,6 +51,9 @@ global EnabledCB := ""
 global ProcessText := ""
 global MappingLV := ""
 global StatusText := ""
+global StatusDetailLink := ""
+global StatusHasWarning := false
+global StatusDetailHovered := false
 global BtnAddMapping := ""
 global BtnEditMapping := ""
 global BtnCopyMapping := ""
@@ -177,5 +180,4 @@ StartApp() {
     ; 显示主窗口
     MainGui.Show("w720 h500")
 }
-
 

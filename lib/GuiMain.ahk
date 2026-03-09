@@ -12,6 +12,9 @@ global EnabledCB
 global ProcessText
 global MappingLV
 global StatusText
+global StatusDetailLink
+global StatusHasWarning
+global StatusDetailHovered
 global BtnAddMapping
 global BtnEditMapping
 global BtnCopyMapping
@@ -56,6 +59,7 @@ BuildMainGui() {
 
     ; --- 操作按钮栏（底栏，y 坐标在 OnMainResize 中动态调整） ---
     btnY := 415
+    statusY := btnY + 5
     global BtnAddMapping := MainGui.AddButton("x10 y" btnY " w80 h30", "新增映射")
     BtnAddMapping.OnEvent("Click", OnAddMapping)
     global BtnEditMapping := MainGui.AddButton("x95 y" btnY " w80 h30", "编辑映射")
@@ -65,9 +69,16 @@ BuildMainGui() {
     global BtnDeleteMapping := MainGui.AddButton("x265 y" btnY " w80 h30", "删除映射")
     BtnDeleteMapping.OnEvent("Click", OnDeleteMapping)
 
-    ; --- 状态栏 ---
-    global StatusText := MainGui.AddText("x360 y" btnY + 5 " w230 h23 +0x200 cGray", "已启用 0/0 个配置")
-    StatusText.OnEvent("Click", OnStatusTextClick)
+    ; --- 状态栏（左文本 + 右详情链接） ---
+    global StatusText := MainGui.AddText("x360 y" statusY " w150 h23 +0x200 cGray", "已启用 0/0 个配置")
+    global StatusDetailLink := MainGui.AddText("x515 y" statusY " w75 h23 +0x200 c0078D7", "查看详情")
+    StatusDetailLink.SetFont("underline")
+    StatusDetailLink.OnEvent("Click", OnStatusTextClick)
+    StatusDetailLink.Opt("+Hidden")
+
+    ; 详情链接交互反馈：悬停高亮 + 手型指针
+    OnMessage(0x0200, OnMainMouseMove)
+    OnMessage(0x0020, OnMainSetCursor)
 
     ; --- 管理员提权按钮 ---
     global BtnRunAsAdmin := MainGui.AddButton("x600 y" btnY " w110 h30", "以管理员重启")
@@ -124,12 +135,25 @@ OnMainResize(thisGui, minMax, width, height) {
     BtnCopyMapping.Move(, btnY)
     BtnDeleteMapping.Move(, btnY)
 
-    ; 状态文本
-    StatusText.Move(, statusY)
-
     ; 管理员按钮：右对齐
     adminX := width - 110 - margin
     BtnRunAsAdmin.Move(adminX, btnY)
+
+    ; 状态栏与详情入口布局
+    statusX := 360
+    linkW := 75
+    linkGap := 8
+    linkX := adminX - linkW - linkGap
+    statusW := linkX - statusX - 8
+    if (statusW < 120)
+        statusW := 120
+
+    StatusText.Move(statusX, statusY, statusW)
+    StatusDetailLink.Move(linkX, statusY, linkW)
+
+    ; 轻量重绘底栏：仅失效重绘子控件，避免强制擦除带来的 resize 闪烁
+    flags := 0x0001 | 0x0080
+    DllCall("RedrawWindow", "ptr", MainGui.Hwnd, "ptr", 0, "ptr", 0, "uint", flags)
 }
 
 ; 创建模态子窗口（禁用主窗口，子窗口关闭时自动恢复）
@@ -146,7 +170,47 @@ DestroyModalGui(modalGui) {
     modalGui.Destroy()
 }
 
-; 点击状态栏时展示热键冲突与注册失败的详细信息
+; 统一控制详情链接悬停状态
+SetStatusDetailHover(isHover) {
+    if (StatusDetailHovered = isHover)
+        return
+
+    global StatusDetailHovered := isHover
+    if (isHover) {
+        StatusDetailLink.SetFont("c005A9E underline")
+        ToolTip("点击查看冲突与注册失败详情")
+    } else {
+        StatusDetailLink.SetFont("c0078D7 underline")
+        ToolTip()
+    }
+}
+
+; 鼠标移动时更新详情链接的悬停反馈
+OnMainMouseMove(wParam, lParam, msg, hwnd) {
+    if !StatusHasWarning {
+        SetStatusDetailHover(false)
+        return
+    }
+
+    MouseGetPos(, , &winHwnd, &ctrlHwnd, 2)
+    isHover := (winHwnd = MainGui.Hwnd && ctrlHwnd = StatusDetailLink.Hwnd)
+    SetStatusDetailHover(isHover)
+}
+
+; 详情链接悬停时使用手型指针
+OnMainSetCursor(wParam, lParam, msg, hwnd) {
+    if !StatusHasWarning
+        return
+
+    MouseGetPos(, , &winHwnd, &ctrlHwnd, 2)
+    if (winHwnd = MainGui.Hwnd && ctrlHwnd = StatusDetailLink.Hwnd) {
+        static handCursor := DllCall("LoadCursor", "ptr", 0, "ptr", 32649, "ptr") ; IDC_HAND
+        DllCall("SetCursor", "ptr", handCursor)
+        return true
+    }
+}
+
+; 点击状态栏详情时展示热键冲突与注册失败的详细信息
 OnStatusTextClick(*) {
     if (HotkeyConflicts.Length = 0 && HotkeyRegErrors.Length = 0)
         return
@@ -165,3 +229,4 @@ OnStatusTextClick(*) {
     }
     MsgBox(RTrim(details, "`n"), APP_NAME, "Icon!")
 }
+
