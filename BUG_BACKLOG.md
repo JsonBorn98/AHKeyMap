@@ -7,6 +7,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - `待验证`: 有风险点，但还缺少稳定复现或运行时证据。
 - `已确认非问题`: 已核实当前实现可接受，保留记录仅用于避免重复讨论。
 - `已合并`: 该编号已并入另一条，后续以目标条目为准。
+- `已修复`: 已在代码中落地并完成验证，保留记录仅用于追溯。
 
 ## 留档字段
 - `严重度`: High / Medium / Low
@@ -55,18 +56,17 @@ Pending issues that are intentionally deferred. Read this file before starting n
 ---
 
 ## BUG-004: 路径 C 长按连续触发缺少显式 KeyUp 停止
-- 状态: 待修
+- 状态: 已修复
 - 严重度: High
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:521`, `lib/HotkeyEngine.ahk:677`
+- 文件: `lib/HotkeyEngine.ahk:571`, `lib/HotkeyEngine.ahk:833`
 - 影响范围: 透传模式长按连续触发、按键释放精度
 - 复现条件: 配置路径 C 映射并开启 `HoldRepeat`，按住后在重复间隔之间松开源键
-- 当前观察: 路径 A/B 会注册 `Up` 热键停止定时器，路径 C 只依赖 `RepeatTimerCallback()` 轮询源键和修饰键状态。这样可能出现松键后仍多发一次的尾击问题。
-- 修复方向: 为路径 C 补充 `sourceKey Up` 停止回调，轮询逻辑保留为兜底。
-- 验证方式: 配置一条路径 C 长按映射；多次测试快速松键和慢速松键；确认定时器能在松开瞬间停止且无额外发送。
+- 当前观察: 已为路径 C 的 `sourceKey` 按需注册 `Up` 热键，并统一通过 `StopHoldTimer()` 清理长按定时器；快速松键与慢速松键都可在松开时停止连续触发，轮询逻辑继续保留为兜底。
+- 修复方向: 无需继续处理；若后续出现滚轮类 `sourceKey` 的边界行为，再单独补充验证。
+- 验证方式: 已手工验证路径 C 长按映射的快速松键、慢速松键与修饰键松开停止场景。
 
 ---
-
 ## BUG-005: `CapturePolling` 峰值保留逻辑可能丢失等长组合变化
 - 状态: 待验证
 - 严重度: Low
@@ -119,19 +119,17 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ---
 
-## BUG-009: 路径 C fallback 转发可能丢失额外修饰键语义
-- 状态: 待修
+## BUG-009: 路径 C 未命中组合时未完整保留原始输入语义
+- 状态: 已修复
 - 严重度: Medium
-- 置信度: 中
-- 文件: `lib/HotkeyEngine.ahk:524`, `lib/HotkeyEngine.ahk:708`
-- 影响范围: 透传模式、带额外修饰键的源键转发
-- 复现条件: 配置路径 C 映射后，按下未参与该映射的其他修饰键，再触发 `sourceKey`
-- 当前观察: `RegisterPathC()` 为源键加了 `*` 通配符，`PassthroughSourceHandler()` 在未命中目标修饰键时直接 `Send(KeyToSendFormat(sourceKey))`。这会把用户当下额外按住的修饰键语义丢掉，例如真实输入可能是 `Ctrl+sourceKey`，fallback 却只转发 `sourceKey`。
-- 修复方向: fallback 发送时改为保留当前物理修饰键状态，例如使用 `{Blind}` 或显式拼接当前修饰键。
-- 验证方式: 为路径 C 映射配置一个透传源键；分别测试裸按、按住无关修饰键、按住目标修饰键三种场景；确认原始输入不会被错误简化。
-
+- 置信度: 高
+- 文件: `lib/HotkeyEngine.ahk:559`, `lib/HotkeyEngine.ahk:801`
+- 影响范围: 透传模式、修饰键原始功能保留的一致性
+- 复现条件: 配置路径 C 映射后，在未按住目标 `modKey` 的情况下，按住其他修饰键再触发 `sourceKey`
+- 当前观察: 路径 C 已改为“仅在目标 `modKey` 按下时临时启用 `sourceKey` 热键”。未命中组合时，`sourceKey` 默认不再被路径 C 接管，因此可保留更完整的原始输入语义；命中组合时仍按路径 C 规则触发目标映射。
+- 修复方向: 无需继续处理；如果后续要支持更复杂的跨作用域按键切换，可另开优化项讨论。
+- 验证方式: 已手工验证裸按、按住无关修饰键、按住目标修饰键，以及 `RButton` 手势场景。
 ---
-
 ## BUG-010: 路径 B 修饰键恢复对鼠标修饰键可能产生副作用
 - 状态: 待修
 - 严重度: Medium
