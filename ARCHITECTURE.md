@@ -53,8 +53,8 @@
 
 ### 路径 C — `RegisterPathC`（状态追踪式组合）
 - 使用 `~modKey` 保留修饰键物理事件
-- `Hotkey(sourceKey, handler)` 检查修饰键状态
-- 用 `ComboFiredState` 追踪本次按住期间是否触发组合
+- 仅在目标 `modKey` 按下时临时启用 `sourceKey` 热键
+- 用 `ComboFiredState` 追踪本次按住期间是否触发组合，并在 `modKey` 松开时关闭对应 `sourceKey` 监听
 - 对右键菜单等副作用进行抑制处理
 
 ## 进程作用域（HotIf）
