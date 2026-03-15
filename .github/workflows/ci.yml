@@ -13,6 +13,7 @@ permissions:
 
 env:
   AUTOHOTKEY_VERSION: "2.0.21"
+  AHK2EXE_VERSION: "1.1.37.02a0a"
 
 jobs:
   build:
@@ -34,24 +35,9 @@ jobs:
       - name: Download AutoHotkey toolchain
         shell: pwsh
         run: |
-          $url = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$env:AUTOHOTKEY_VERSION/AutoHotkey_$env:AUTOHOTKEY_VERSION.zip"
-          $zipPath = Join-Path $env:RUNNER_TEMP "autohotkey.zip"
-          $extractRoot = Join-Path $env:RUNNER_TEMP "autohotkey"
-
-          Invoke-WebRequest -Uri $url -OutFile $zipPath
-          if (Test-Path -LiteralPath $extractRoot) {
-              Remove-Item -LiteralPath $extractRoot -Recurse -Force
-          }
-          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
-
-          $ahk2Exe = Get-ChildItem -Path $extractRoot -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
-          $baseFile = Get-ChildItem -Path $extractRoot -Recurse -Filter AutoHotkey64.exe | Where-Object { $_.FullName -match '\\v2\\' } | Select-Object -First 1
-
-          if (-not $ahk2Exe) { throw "Ahk2Exe.exe not found in extracted toolchain" }
-          if (-not $baseFile) { throw "AutoHotkey64.exe not found in extracted toolchain" }
-
-          "AHK2EXE_PATH=$($ahk2Exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          .\scripts\Download-GitHubToolchain.ps1 `
+            -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
+            -Ahk2ExeVersion $env:AHK2EXE_VERSION
 
       - name: Build release artifacts
         shell: pwsh
