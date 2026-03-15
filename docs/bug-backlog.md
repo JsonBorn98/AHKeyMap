@@ -239,6 +239,14 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ---
 
+### OPT-006: 测试 runner 缺少并发隔离与输出目录隔离
+- **类型**: ? 优化
+- **文件**: `scripts/test.ps1`
+- **描述**: 当前 test runner 在每次执行前都会清空 `test-results/`，并共享同一套日志与截图输出路径。若同一 worktree 内并行运行多个 suite，结果目录会互相覆盖，`gui` suite 还会与其他本地验证争用桌面会话与 AutoHotkey 运行资源，导致假卡死、结果混杂或误判。
+- **修复方案**: 为 runner 增加 run-level lock，以及可选的 `-OutputDir` / run-id 隔离；在检测到已有测试运行时直接拒绝第二个实例。完成这些隔离前，仓库规则应保持“同一 worktree 串行跑测试，`gui` suite 独占执行”。
+
+---
+
 ## BUG-015: 路径 C 使用 RButton + 滚轮时右键菜单行为不稳定
 - 状态: 已修复
 - 严重度: Medium

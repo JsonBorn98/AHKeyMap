@@ -63,6 +63,9 @@ Test artifacts:
 - Human-readable logs land under `test-results/logs/`
 - `test-results/summary.json` is the machine-readable run summary
 - GUI failures may also emit screenshots under `test-results/screenshots/`
+- Do not run multiple `pwsh ./scripts/test.ps1 ...` commands concurrently in the same worktree.
+- `gui` suite must run exclusively; do not run it alongside other suites or other local verification commands that compete for the desktop session.
+- If you need parallel validation, use separate worktrees or add isolated output directories first. The current runner clears `test-results/` at the start of each run.
 
 Manual validation is still required for true desktop end-to-end input scenarios:
 - Exercise Hotkey paths A/B/C against a real target app

@@ -72,6 +72,12 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
     AssertEq("include", ReadConfigValue("SmokeConfig", "Meta", "ProcessMode"))
     AssertEq("notepad.exe|code.exe", ReadConfigValue("SmokeConfig", "Meta", "Process"))
 
+    EnabledCB.Value := 1
+    OnToggleEnabled(EnabledCB)
+    AssertTrue(CurrentConfigEnabled)
+    AssertEq("1", ReadStateValue("EnabledConfigs", "SmokeConfig"))
+    AssertTrue(ActiveHotkeys.Length > 0, "Expected active hotkeys before deleting an enabled config.")
+
     DeleteCurrentConfigAndRefresh()
 
     AssertFalse(FileExist(CONFIG_DIR "\SmokeConfig.ini"))

@@ -89,30 +89,45 @@ SupportsKeyUpHotkey(hotkeyName) {
     return !RegExMatch(baseKey, "^Wheel")
 }
 
+MakeActiveHotkeyRecord(checker := "", configName := "", key := "", keyUp := "") {
+    return {
+        checker: checker,
+        configName: configName,
+        key: key,
+        keyUp: keyUp
+    }
+}
+
 ; Unregister all currently active hotkeys
 UnregisterAllHotkeys() {
     ; Build a lightweight snapshot first to avoid mutating the source structure while iterating
     hotkeysSnapshot := []
     for _, hk in ActiveHotkeys {
-        ; Defensive check: only handle Map objects created by this engine
-        if (Type(hk) != "Map")
+        if !IsObject(hk)
             continue
 
-        ; Avoid Map.Has to work around a known engine crash; use try-read instead
         checkerVal := ""
         keyVal := ""
         keyUpVal := ""
 
-        try keyVal := hk["key"]
-        catch
-            continue  ; unexpected shape, skip it
+        try {
+            if (hk.HasOwnProp("key"))
+                keyVal := hk.key
+        } catch {
+            continue
+        }
+        if (keyVal = "")
+            continue
 
         try {
-            if (hk["checker"] != "")
-                checkerVal := hk["checker"]
+            if (hk.HasOwnProp("checker") && hk.checker != "")
+                checkerVal := hk.checker
         }
 
-        try keyUpVal := hk["keyUp"]
+        try {
+            if (hk.HasOwnProp("keyUp"))
+                keyUpVal := hk.keyUp
+        }
 
         hotkeysSnapshot.Push({ checker: checkerVal, key: keyVal, keyUp: keyUpVal })
     }
@@ -464,9 +479,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
             HotIf(checker)
         else
             HotIf()
-        hkInfo := Map()
-        hkInfo["checker"] := checker
-        hkInfo["configName"] := configName
+        hkInfo := MakeActiveHotkeyRecord(checker, configName)
         RegisterPathA(mapping, hkInfo, uniqueIdx)
         ActiveHotkeys.Push(hkInfo)
         return
@@ -478,9 +491,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
             HotIf(checker)
         else
             HotIf()
-        hkInfo := Map()
-        hkInfo["checker"] := checker
-        hkInfo["configName"] := configName
+        hkInfo := MakeActiveHotkeyRecord(checker, configName)
         RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
         ActiveHotkeys.Push(hkInfo)
         return
@@ -497,7 +508,7 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
     targetKey := mapping["TargetKey"]
     holdRepeat := mapping["HoldRepeat"]
 
-    hkInfo["key"] := sourceKey
+    hkInfo.key := sourceKey
 
     if (holdRepeat) {
         downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
@@ -505,7 +516,7 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
         try {
             Hotkey(sourceKey, downCb, "On")
             Hotkey(sourceKey " Up", upCb, "On")
-            hkInfo["keyUp"] := sourceKey " Up"
+            hkInfo.keyUp := sourceKey " Up"
         } catch as e {
             HotkeyRegErrors.Push(sourceKey)
         }
@@ -524,7 +535,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     holdRepeat := mapping["HoldRepeat"]
     comboKey := modKey " & " sourceKey
 
-    hkInfo["key"] := comboKey
+    hkInfo.key := comboKey
 
     if (holdRepeat) {
         downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
@@ -532,7 +543,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
         try {
             Hotkey(comboKey, downCb, "On")
             Hotkey(comboKey " Up", upCb, "On")
-            hkInfo["keyUp"] := comboKey " Up"
+            hkInfo.keyUp := comboKey " Up"
         } catch as e {
             HotkeyRegErrors.Push(comboKey)
         }
@@ -547,10 +558,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     if !InterceptModKeys.Has(modRegKey) {
         try {
             Hotkey(modKey, RestoreModKeyCallback.Bind(modKey), "On")
-            modHkInfo := Map()
-            modHkInfo["key"] := modKey
-            modHkInfo["checker"] := checker
-            modHkInfo["configName"] := configName
+            modHkInfo := MakeActiveHotkeyRecord(checker, configName, modKey)
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
         } catch as e {
@@ -681,11 +689,7 @@ RegisterAllPathCHotkeys() {
             continue
         }
 
-        modHkInfo := Map()
-        modHkInfo["key"] := downHk
-        modHkInfo["keyUp"] := upHk
-        modHkInfo["checker"] := ""
-        modHkInfo["configName"] := ""
+        modHkInfo := MakeActiveHotkeyRecord("", "", downHk, upHk)
         ActiveHotkeys.Push(modHkInfo)
     }
 
@@ -697,10 +701,7 @@ RegisterAllPathCHotkeys() {
         sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
 
         ; KeyDown
-        hkInfo := Map()
-        hkInfo["checker"] := ""
-        hkInfo["configName"] := ""
-        hkInfo["key"] := sourceHotkey
+        hkInfo := MakeActiveHotkeyRecord("", "", sourceHotkey)
 
         try {
             HotIf()
@@ -715,7 +716,7 @@ RegisterAllPathCHotkeys() {
             try {
                 HotIf()
                 Hotkey(srcUpHotkey, PathC_SourceUpCallback.Bind(sourceKey), "On")
-                hkInfo["keyUp"] := srcUpHotkey
+                hkInfo.keyUp := srcUpHotkey
             } catch as e {
                 HotkeyRegErrors.Push(srcUpHotkey)
             }
