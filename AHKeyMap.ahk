@@ -1,7 +1,7 @@
 ; ============================================================================
 ; AHKeyMap - AHKv2 按键映射工具
 ; 支持多配置管理、多进程绑定、按键捕获、组合键映射、长按连续触发
-; 支持自定义修饰键（含鼠标按键）、滚轮映射、状态追踪式组合键
+; 支持自定义修饰键（含鼠标按键）、滚轮映射、透传式组合键
 ; 支持多配置同时生效、三态进程作用域（全局/仅指定/排除指定）
 ; ============================================================================
 #Requires AutoHotkey v2.0
@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.4.2
+;@Ahk2Exe-SetVersion 2.5.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
@@ -18,7 +18,7 @@ Persistent
 ; 全局变量（所有模块共享）
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.4.2"
+global APP_VERSION := "2.5.0"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
@@ -72,14 +72,14 @@ global EditingIndex := 0
 ; 热键引擎相关全局变量
 global ActiveHotkeys := []
 global HoldTimers := Map()
-global ComboFiredState := Map()
-global PassthroughModKeys := Map()
 global InterceptModKeys := Map()
-global PassthroughHandlers := Map()
-global PassthroughSourceRegistered := Map()
 global AllProcessCheckers := []
 global HotkeyConflicts := []
 global HotkeyRegErrors := []
+global PathCMappingByModSource := Map()
+global PathCModSessions := Map()
+global PathCModsUsed := Map()
+global PathCSourceKeysUsed := Map()
 
 ; 按键捕获相关全局变量
 global IsCapturing := false

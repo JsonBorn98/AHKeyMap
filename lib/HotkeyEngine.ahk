@@ -7,14 +7,14 @@
 global AllConfigs
 global ActiveHotkeys
 global HoldTimers
-global ComboFiredState
-global PassthroughModKeys
 global InterceptModKeys
-global PassthroughHandlers
-global PassthroughSourceRegistered
 global AllProcessCheckers
 global HotkeyConflicts
 global HotkeyRegErrors
+global PathCMappingByModSource
+global PathCModSessions
+global PathCModsUsed
+global PathCSourceKeysUsed
 global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
@@ -78,9 +78,6 @@ SupportsKeyUpHotkey(hotkeyName) {
 
 ; 卸载所有当前热键
 UnregisterAllHotkeys() {
-    ; 先清理状态追踪式修饰键
-    CleanupPassthroughModKeys()
-
     ; 卸载所有已注册的热键
     for _, hk in ActiveHotkeys {
         try {
@@ -100,14 +97,14 @@ UnregisterAllHotkeys() {
     }
     HotIf()
     global ActiveHotkeys := []
-    global ComboFiredState := Map()
-    global PassthroughModKeys := Map()
     global InterceptModKeys := Map()
-    global PassthroughHandlers := Map()
-    global PassthroughSourceRegistered := Map()
     global HoldTimers := Map()
     global AllProcessCheckers := []
     global HotkeyRegErrors := []
+    global PathCMappingByModSource := Map()
+    global PathCModSessions := Map()
+    global PathCModsUsed := Map()
+    global PathCSourceKeysUsed := Map()
 }
 
 ; 重新加载所有已启用配置的热键
@@ -142,6 +139,9 @@ ReloadAllHotkeys() {
         RegisterConfigHotkeys(cfg)
     for _, cfg in globalConfigs
         RegisterConfigHotkeys(cfg)
+
+    ; 为所有路径 C 映射注册统一的修饰键与源键路由热键
+    RegisterAllPathCHotkeys()
 
     HotIf()
 
@@ -402,7 +402,7 @@ RegisterConfigHotkeys(cfg) {
     if (mappings.Length = 0)
         return
 
-    ; 创建该配置的进程匹配闭包
+    ; 创建该配置的进程匹配闭包（供路径 A/B 使用；路径 C 将在回调中显式检查作用域）
     checker := MakeProcessChecker(cfg)
     ; 保持引用防止 GC
     if (checker != "")
@@ -410,56 +410,7 @@ RegisterConfigHotkeys(cfg) {
 
     useCustomHotIf := (checker != "")
 
-    ; 第一遍：收集状态追踪式映射，按 sourceKey 分组
-    for idx, mapping in mappings {
-        modKey := mapping["ModifierKey"]
-        if (modKey = "" || !mapping["PassthroughMod"])
-            continue
-
-        srcKey := mapping["SourceKey"]
-        ; 分组键与注册去重键保持一致：
-        ; - include/exclude: configName|sourceKey（按配置隔离）
-        ; - global: |sourceKey（跨配置聚合，避免仅首个配置生效）
-        groupPrefix := (cfg["processMode"] = "global") ? "" : cfg["name"]
-        groupKey := groupPrefix "|" srcKey
-        modRegKey := (checker != "" ? cfg["name"] : "") "|" modKey
-        sourceHotkey := SubStr(srcKey, 1, 1) = "*" ? srcKey : "*" srcKey
-        if !PassthroughHandlers.Has(groupKey) {
-            PassthroughHandlers[groupKey] := {
-                sourceKey: srcKey,
-                sourceHotkey: sourceHotkey,
-                sourceKeyUp: sourceHotkey " Up",
-                supportsKeyUp: SupportsKeyUpHotkey(sourceHotkey),
-                checker: checker,
-                configName: cfg["name"],
-                handlers: [],
-                activeMods: Map(),
-                enabled: false
-            }
-        }
-
-        PassthroughHandlers[groupKey].handlers.Push({
-            modKey: modKey,
-            targetKey: mapping["TargetKey"],
-            holdRepeat: mapping["HoldRepeat"],
-            repeatDelay: mapping["RepeatDelay"],
-            repeatInterval: mapping["RepeatInterval"],
-            idx: cfg["name"] "|" idx
-        })
-
-        if !PassthroughModKeys.Has(modRegKey) {
-            PassthroughModKeys[modRegKey] := {
-                modKey: modKey,
-                checker: checker,
-                configName: cfg["name"],
-                groupKeys: [],
-                registered: false
-            }
-        }
-        AddUniqueArrayValue(PassthroughModKeys[modRegKey].groupKeys, groupKey)
-    }
-
-    ; 第二遍：注册所有热键
+    ; 注册当前配置下的所有映射（路径 A/B 直接注册热键；路径 C 仅构建映射表）
     for idx, mapping in mappings {
         RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
     }
@@ -469,23 +420,37 @@ RegisterConfigHotkeys(cfg) {
 RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
     modKey := mapping["ModifierKey"]
 
-    if (useCustomHotIf)
-        HotIf(checker)
-    else
-        HotIf()
-
-    hkInfo := Map()
-    hkInfo["checker"] := checker
-    hkInfo["configName"] := configName
-
-    if (modKey = "")
+    ; 路径 A：无修饰键，直接注册热键
+    if (modKey = "") {
+        if (useCustomHotIf)
+            HotIf(checker)
+        else
+            HotIf()
+        hkInfo := Map()
+        hkInfo["checker"] := checker
+        hkInfo["configName"] := configName
         RegisterPathA(mapping, hkInfo, uniqueIdx)
-    else if (!mapping["PassthroughMod"])
-        RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
-    else
-        RegisterPathC(mapping, hkInfo, checker, configName)
+        ActiveHotkeys.Push(hkInfo)
+        return
+    }
 
-    ActiveHotkeys.Push(hkInfo)
+    ; 路径 B：拦截式组合热键（modKey & sourceKey），修饰键不透传
+    if (!mapping["PassthroughMod"]) {
+        if (useCustomHotIf)
+            HotIf(checker)
+        else
+            HotIf()
+        hkInfo := Map()
+        hkInfo["checker"] := checker
+        hkInfo["configName"] := configName
+        RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
+        ActiveHotkeys.Push(hkInfo)
+        return
+    }
+
+    ; 路径 C：状态化透传，统一由 Path C 引擎处理，不在注册层直接绑定目标回调
+    HotIf()
+    RegisterPathCMapping(mapping, uniqueIdx, configName, checker)
 }
 
 ; 路径 A：无修饰键，直接映射 sourceKey → targetKey
@@ -556,98 +521,34 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     }
 }
 
-; 路径 C：状态追踪式（修饰键透传），sourceKey 仅在目标修饰键按下时启用
-RegisterPathC(mapping, hkInfo, checker, configName) {
+; 路径 C：仅构建映射表，具体行为由 Path C 引擎统一处理
+RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
+    global PathCMappingByModSource, PathCModsUsed, PathCSourceKeysUsed
+
     modKey := mapping["ModifierKey"]
     sourceKey := mapping["SourceKey"]
-    sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
-    srcRegKey := (checker != "" ? configName : "") "|" sourceKey
-    modRegKey := (checker != "" ? configName : "") "|" modKey
-
-    hkInfo["key"] := sourceHotkey
-    if (PassthroughHandlers.Has(srcRegKey) && PassthroughHandlers[srcRegKey].supportsKeyUp)
-        hkInfo["keyUp"] := PassthroughHandlers[srcRegKey].sourceKeyUp
-
-    if !PassthroughSourceRegistered.Has(srcRegKey) {
-        try {
-            Hotkey(sourceHotkey, PassthroughSourceHandler.Bind(srcRegKey), "Off")
-            if (PassthroughHandlers.Has(srcRegKey) && PassthroughHandlers[srcRegKey].supportsKeyUp)
-                Hotkey(PassthroughHandlers[srcRegKey].sourceKeyUp, PassthroughSourceUpHandler.Bind(srcRegKey), "Off")
-            PassthroughSourceRegistered[srcRegKey] := true
-        } catch as e {
-            HotkeyRegErrors.Push(sourceHotkey)
-        }
-    }
-
-    ; 注册修饰键状态追踪（同一 HotIf 条件下只注册一次）
-    if (PassthroughModKeys.Has(modRegKey) && !PassthroughModKeys[modRegKey].registered)
-        SetupPassthroughModKey(modRegKey, modKey, checker, configName)
-}
-
-; 设置状态追踪式修饰键的按下/松开监控
-SetupPassthroughModKey(modRegKey, modKey, checker := "", configName := "") {
-    ComboFiredState[modKey] := false
-
-    downCb := PassthroughModDown.Bind(modRegKey)
-    upCb := PassthroughModUp.Bind(modRegKey)
-    try {
-        Hotkey("~" modKey, downCb, "On")
-        Hotkey("~" modKey " Up", upCb, "On")
-    } catch as e {
-        HotkeyRegErrors.Push("~" modKey)
-        return
-    }
-
-    modHkInfo := Map()
-    modHkInfo["key"] := "~" modKey
-    modHkInfo["keyUp"] := "~" modKey " Up"
-    modHkInfo["checker"] := checker
-    modHkInfo["configName"] := configName
-    ActiveHotkeys.Push(modHkInfo)
-    PassthroughModKeys[modRegKey].registered := true
-}
-
-; 清理状态追踪式修饰键的监控
-CleanupPassthroughModKeys() {
-    ; 通过 ActiveHotkeys 中记录的 checker 来正确卸载
-    ; （在 UnregisterAllHotkeys 的主循环中统一处理）
-    ; 这里只重置状态
-    global PassthroughModKeys := Map()
-}
-
-; 修饰键按下：初始化组合触发状态并启用对应 sourceKey
-PassthroughModDown(modRegKey, *) {
-    if !PassthroughModKeys.Has(modRegKey)
+    if (modKey = "" || !mapping["PassthroughMod"])
         return
 
-    modEntry := PassthroughModKeys[modRegKey]
-    ComboFiredState[modEntry.modKey] := false
-    for _, groupKey in modEntry.groupKeys
-        ActivatePassthroughGroup(groupKey, modEntry.modKey)
-}
+    key := modKey "|" sourceKey
+    if !PathCMappingByModSource.Has(key)
+        PathCMappingByModSource[key] := []
 
-; 修饰键松开：如果触发过组合，尝试抑制副作用
-PassthroughModUp(modRegKey, *) {
-    if !PassthroughModKeys.Has(modRegKey)
-        return
-
-    modEntry := PassthroughModKeys[modRegKey]
-    modKey := modEntry.modKey
-    if (ComboFiredState.Has(modKey) && ComboFiredState[modKey]) {
-        ComboFiredState[modKey] := false
-        ; ~ 前缀已经让物理事件通过，无法阻止
-        ; 对于 RButton，松开可能触发右键菜单，用 Escape 关闭
-        if (modKey = "RButton")
-            SetTimer(DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
+    entry := {
+        modKey: modKey,
+        sourceKey: sourceKey,
+        targetKey: mapping["TargetKey"],
+        holdRepeat: mapping["HoldRepeat"],
+        repeatDelay: mapping["RepeatDelay"],
+        repeatInterval: mapping["RepeatInterval"],
+        configName: configName,
+        id: uniqueIdx,
+        checker: checker
     }
-    ComboFiredState[modKey] := false
-    for _, groupKey in modEntry.groupKeys
-        DeactivatePassthroughGroup(groupKey, modKey)
-}
+    PathCMappingByModSource[key].Push(entry)
 
-; 延迟关闭右键菜单（给系统一点时间弹出菜单后再关闭）
-DismissContextMenu(*) {
-    Send("{Escape}")
+    PathCModsUsed[modKey] := true
+    PathCSourceKeysUsed[sourceKey] := true
 }
 
 ; ============================================================================
@@ -711,132 +612,240 @@ RestoreModKeyCallback(modKey, *) {
 }
 
 ; ============================================================================
-; 路径 C 回调（状态追踪式）
+; 路径 C 引擎（显式状态机 + 统一事件路由）
 ; ============================================================================
 
-SetPassthroughGroupEnabled(groupKey, enabled) {
-    if !PassthroughHandlers.Has(groupKey)
-        return
+; 注册所有 Path C 所需的修饰键与源键热键（在所有配置处理完成后调用）
+RegisterAllPathCHotkeys() {
+    global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors
 
-    group := PassthroughHandlers[groupKey]
-    if (group.enabled = enabled)
-        return
+    ; 修饰键：键盘修饰键/鼠标键通用，全部使用 "~modKey" / "~modKey Up" 透传物理事件
+    for modKey, _ in PathCModsUsed {
+        if (modKey = "")
+            continue
 
-    if (group.checker != "")
-        HotIf(group.checker)
-    else
-        HotIf()
+        downHk := "~" modKey
+        upHk := "~" modKey " Up"
 
-    try {
-        action := enabled ? "On" : "Off"
-        Hotkey(group.sourceHotkey, action)
-        if (group.supportsKeyUp)
-            Hotkey(group.sourceKeyUp, action)
-        group.enabled := enabled
-    } catch as e {
-        HotkeyRegErrors.Push(group.sourceHotkey)
+        try {
+            HotIf()
+            Hotkey(downHk, PathC_ModDownCallback.Bind(modKey), "On")
+            Hotkey(upHk, PathC_ModUpCallback.Bind(modKey), "On")
+        } catch as e {
+            HotkeyRegErrors.Push(downHk)
+            continue
+        }
+
+        modHkInfo := Map()
+        modHkInfo["key"] := downHk
+        modHkInfo["keyUp"] := upHk
+        modHkInfo["checker"] := ""
+        modHkInfo["configName"] := ""
+        ActiveHotkeys.Push(modHkInfo)
     }
+
+    ; 源键：统一监听，实际触发逻辑在 Path C 引擎中判定
+    for sourceKey, _ in PathCSourceKeysUsed {
+        if (sourceKey = "")
+            continue
+
+        sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
+
+        ; KeyDown
+        hkInfo := Map()
+        hkInfo["checker"] := ""
+        hkInfo["configName"] := ""
+        hkInfo["key"] := sourceHotkey
+
+        try {
+            HotIf()
+            Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
+        } catch as e {
+            HotkeyRegErrors.Push(sourceHotkey)
+        }
+
+        ; KeyUp（仅对支持 Up 热键的源键注册）
+        if (SupportsKeyUpHotkey(sourceHotkey)) {
+            srcUpHotkey := sourceHotkey " Up"
+            try {
+                HotIf()
+                Hotkey(srcUpHotkey, PathC_SourceUpCallback.Bind(sourceKey), "On")
+                hkInfo["keyUp"] := srcUpHotkey
+            } catch as e {
+                HotkeyRegErrors.Push(srcUpHotkey)
+            }
+        }
+        ActiveHotkeys.Push(hkInfo)
+    }
+
     HotIf()
 }
 
-ActivatePassthroughGroup(groupKey, modKey) {
-    if !PassthroughHandlers.Has(groupKey)
-        return
-
-    group := PassthroughHandlers[groupKey]
-    if !group.activeMods.Has(modKey)
-        group.activeMods[modKey] := true
-    SetPassthroughGroupEnabled(groupKey, true)
-}
-
-StopPassthroughGroupRepeats(groupKey, modKey := "") {
-    if !PassthroughHandlers.Has(groupKey)
-        return
-
-    group := PassthroughHandlers[groupKey]
-    for _, h in group.handlers {
-        if (modKey != "" && h.modKey != modKey)
-            continue
-        StopHoldTimer(h.idx)
-    }
-}
-
-DeactivatePassthroughGroup(groupKey, modKey) {
-    if !PassthroughHandlers.Has(groupKey)
-        return
-
-    group := PassthroughHandlers[groupKey]
-    if (group.activeMods.Has(modKey))
-        group.activeMods.Delete(modKey)
-
-    StopPassthroughGroupRepeats(groupKey, modKey)
-    if (group.activeMods.Count = 0)
-        SetPassthroughGroupEnabled(groupKey, false)
-}
-
-SyncPassthroughGroupState(groupKey) {
-    if !PassthroughHandlers.Has(groupKey)
-        return false
-
-    group := PassthroughHandlers[groupKey]
-    staleMods := []
-    for modKey, _ in group.activeMods {
-        if !GetKeyState(modKey, "P")
-            staleMods.Push(modKey)
-    }
-
-    for _, modKey in staleMods {
-        group.activeMods.Delete(modKey)
-        ComboFiredState[modKey] := false
-        StopPassthroughGroupRepeats(groupKey, modKey)
-    }
-
-    if (group.activeMods.Count = 0)
-        SetPassthroughGroupEnabled(groupKey, false)
-    return (group.activeMods.Count > 0)
-}
-
-; sourceKey 的统一处理器：仅在目标修饰键按下时启用
-; groupKey 格式为 "configName|sourceKey"
-PassthroughSourceHandler(groupKey, *) {
-    if !PassthroughHandlers.Has(groupKey)
-        return
-
-    group := PassthroughHandlers[groupKey]
-    if !SyncPassthroughGroupState(groupKey) {
-        Send(KeyToSendFormat(group.sourceKey))
-        return
-    }
-
-    for _, h in group.handlers {
-        if GetKeyState(h.modKey, "P") {
-            ; 修饰键按住，触发组合
-            ComboFiredState[h.modKey] := true
-
-            if (h.holdRepeat) {
-                sendKey := KeyToSendFormat(h.targetKey)
-                Send(sendKey)
-                timerFn := RepeatTimerCallback.Bind(sendKey, group.sourceKey, h.idx, h.modKey)
-                startFn := StartRepeat.Bind(h.idx, timerFn, h.repeatInterval)
-                HoldTimers[h.idx] := { fn: timerFn, startFn: startFn, interval: h.repeatInterval, active: true }
-                SetTimer(startFn, -h.repeatDelay)
-            } else {
-                Send(KeyToSendFormat(h.targetKey))
-            }
-            return
+; 获取或初始化指定修饰键的会话状态
+PathC_GetSession(modKey) {
+    global PathCModSessions
+    if !PathCModSessions.Has(modKey) {
+        PathCModSessions[modKey] := {
+            state: "Idle",
+            isGesture: false,
+            activeSources: Map(),
+            repeatMappings: Map()
         }
     }
-
-    ; 防御性兜底：如果启用期间状态发生竞争，退回原始 sourceKey
-    Send(KeyToSendFormat(group.sourceKey))
+    return PathCModSessions[modKey]
 }
 
-PassthroughSourceUpHandler(groupKey, *) {
-    StopPassthroughGroupRepeats(groupKey)
+; 结束指定修饰键的会话：停止所有重复触发并重置状态
+PathC_EndSession(modKey) {
+    global PathCModSessions, HoldTimers
+    if !PathCModSessions.Has(modKey)
+        return
+
+    session := PathCModSessions[modKey]
+
+    ; 停止所有与该修饰键关联的重复定时器
+    for mappingId, _ in session.repeatMappings {
+        StopHoldTimer(mappingId)
+    }
+
+    session.repeatMappings := Map()
+    session.activeSources := Map()
+    session.state := "Idle"
+    session.isGesture := false
 }
 
+; 判断映射在当前前台窗口下是否生效（基于配置生成的 checker 闭包）
+PathC_IsMappingActive(mapping) {
+    if (mapping.HasOwnProp("checker") && mapping.checker != "") {
+        try
+            return mapping.checker.Call()
+        catch
+            return false
+    }
+    return true
+}
 
+; 启动路径 C 的长按重复触发
+PathC_StartRepeat(mapping, modKey, sourceKey) {
+    global HoldTimers
 
+    idx := mapping.id
+    sendKey := KeyToSendFormat(mapping.targetKey)
 
+    ; 防御性清理：如果已有定时器运行（防止重入导致孤立定时器）
+    StopHoldTimer(idx)
 
+    Send(sendKey)
 
+    timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx, modKey)
+    startFn := StartRepeat.Bind(idx, timerFn, mapping.repeatInterval)
+    HoldTimers[idx] := { fn: timerFn, startFn: startFn, interval: mapping.repeatInterval, active: true }
+    SetTimer(startFn, -mapping.repeatDelay)
+}
+
+; Path C 修饰键按下回调（统一入口）
+PathC_ModDownCallback(modKey, *) {
+    session := PathC_GetSession(modKey)
+
+    ; 若上一次会话尚未完结，先强制结束
+    if (session.state != "Idle")
+        PathC_EndSession(modKey)
+
+    session := PathC_GetSession(modKey)
+    session.state := "HeldNoCombo"
+    session.isGesture := false
+    session.activeSources := Map()
+    session.repeatMappings := Map()
+}
+
+; Path C 修饰键松开回调（统一入口）
+PathC_ModUpCallback(modKey, *) {
+    session := PathC_GetSession(modKey)
+    if (session.state = "Idle") {
+        return
+    }
+
+    isGesture := session.isGesture
+
+    ; 对于 RButton，只在“已触发 Path C 组合”的手势会话中尝试关闭可能弹出的右键菜单；
+    ; 通过发送 Escape 实现，保留浏览器等工具对 RButton 手势的处理能力。
+    if (modKey = "RButton" && isGesture) {
+        SetTimer(PathC_DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
+    }
+
+    PathC_EndSession(modKey)
+}
+
+PathC_DismissContextMenu(*) {
+    Send("{Escape}")
+}
+
+; Path C 源键按下回调（统一入口）
+PathC_SourceDownCallback(sourceKey, *) {
+    global PathCMappingByModSource, PathCModSessions
+
+    handled := false
+
+    ; 遍历所有当前活跃的修饰键会话
+    for modKey, session in PathCModSessions {
+        if (session.state = "Idle")
+            continue
+
+        key := modKey "|" sourceKey
+        if !PathCMappingByModSource.Has(key)
+            continue
+
+        mappings := PathCMappingByModSource[key]
+
+        for _, mapping in mappings {
+            if !PathC_IsMappingActive(mapping)
+                continue
+
+            ; 标记本次会话为手势会话
+            session.state := "GestureActive"
+            session.isGesture := true
+
+            if (mapping.holdRepeat) {
+                PathC_StartRepeat(mapping, modKey, sourceKey)
+                session.repeatMappings[mapping.id] := true
+
+                if !session.activeSources.Has(sourceKey)
+                    session.activeSources[sourceKey] := []
+                session.activeSources[sourceKey].Push(mapping.id)
+            } else {
+                Send(KeyToSendFormat(mapping.targetKey))
+            }
+
+            handled := true
+            break
+        }
+
+        if (handled)
+            break
+    }
+
+    if (!handled) {
+        ; 未命中任何 Path C 映射，回退为原始按键
+        Send(KeyToSendFormat(sourceKey))
+    }
+}
+
+; Path C 源键松开回调（统一入口，仅对支持 Up 的源键生效）
+PathC_SourceUpCallback(sourceKey, *) {
+    global PathCModSessions
+
+    for modKey, session in PathCModSessions {
+        if (session.state = "Idle")
+            continue
+        if !session.activeSources.Has(sourceKey)
+            continue
+
+        ids := session.activeSources[sourceKey]
+        for _, mappingId in ids {
+            StopHoldTimer(mappingId)
+            if (session.repeatMappings.Has(mappingId))
+                session.repeatMappings.Delete(mappingId)
+        }
+        session.activeSources.Delete(sourceKey)
+    }
+}
