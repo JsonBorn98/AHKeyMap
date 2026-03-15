@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.ico" alt="AHKeyMap 图标" width="96">
+</p>
+
 # AHKeyMap
 
 AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，支持多配置并行生效与进程作用域控制，适合打造自己的快捷键工作流。
