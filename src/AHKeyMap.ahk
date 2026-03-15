@@ -10,9 +10,9 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.8.0
+;@Ahk2Exe-SetVersion 2.8.1
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
-;@Ahk2Exe-SetMainIcon icon.ico
+;@Ahk2Exe-SetMainIcon ..\assets\icon.ico
 
 ; ============================================================================
 ; Global variables (shared across all modules)
@@ -23,9 +23,10 @@ if !IsSet(__AHKM_CONFIG_DIR)
     global __AHKM_CONFIG_DIR := ""
 
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.8.0"
+global APP_VERSION := "2.8.1"
 global SCRIPT_DIR := A_ScriptDir
-global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : SCRIPT_DIR "\configs")
+global APP_ROOT := (A_IsCompiled ? SCRIPT_DIR : SCRIPT_DIR "\..")
+global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : APP_ROOT "\configs")
 global STATE_FILE := CONFIG_DIR "\_state.ini"
 global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global REG_VALUE_NAME := "AHKeyMap"
@@ -106,14 +107,14 @@ global ProcessPickerOpen := false
 ; ============================================================================
 ; Include modules
 ; ============================================================================
-#Include "lib/Config.ahk"
-#Include "lib/Utils.ahk"
-#Include "lib/Localization.ahk"
-#Include "lib/HotkeyEngine.ahk"
-#Include "lib/KeyCapture.ahk"
-#Include "lib/GuiMain.ahk"
-#Include "lib/MappingEditor.ahk"
-#Include "lib/GuiEvents.ahk"
+#Include "core/Config.ahk"
+#Include "shared/Utils.ahk"
+#Include "core/Localization.ahk"
+#Include "core/HotkeyEngine.ahk"
+#Include "core/KeyCapture.ahk"
+#Include "ui/GuiMain.ahk"
+#Include "ui/MappingEditor.ahk"
+#Include "ui/GuiEvents.ahk"
 
 
 ; ============================================================================

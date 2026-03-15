@@ -102,12 +102,12 @@ if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "dist"
 }
 
-$getVersionScript = Join-Path $PSScriptRoot "Get-AppVersion.ps1"
+$getVersionScript = Join-Path $PSScriptRoot "get-app-version.ps1"
 $version = (& $getVersionScript -ProjectRoot $ProjectRoot).Trim()
 $toolchain = Resolve-Toolchain -CompilerPath $Ahk2ExePath -InterpreterPath $BaseFilePath
 
-$mainScript = Join-Path $ProjectRoot "AHKeyMap.ahk"
-$iconFile = Join-Path $ProjectRoot "icon.ico"
+$mainScript = Join-Path $ProjectRoot "src\AHKeyMap.ahk"
+$iconFile = Join-Path $ProjectRoot "assets\icon.ico"
 $readmeFile = Join-Path $ProjectRoot "README.md"
 $licenseFile = Join-Path $ProjectRoot "LICENSE"
 $noticeFile = Join-Path $ProjectRoot "THIRD_PARTY_NOTICES.md"

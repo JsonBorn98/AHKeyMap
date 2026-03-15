@@ -5,7 +5,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$mainFile = Join-Path $ProjectRoot "AHKeyMap.ahk"
+$mainFile = Join-Path $ProjectRoot "src\AHKeyMap.ahk"
 if (-not (Test-Path -LiteralPath $mainFile)) {
     throw "Main script not found: $mainFile"
 }
@@ -32,7 +32,7 @@ $directiveVersion = $directiveMatch.Groups[1].Value
 $appVersion = $appVersionMatch.Groups[1].Value
 
 if ($directiveVersion -ne $appVersion) {
-    throw "Version mismatch in AHKeyMap.ahk: Ahk2Exe=$directiveVersion, APP_VERSION=$appVersion"
+    throw "Version mismatch in src/AHKeyMap.ahk: Ahk2Exe=$directiveVersion, APP_VERSION=$appVersion"
 }
 
 Write-Output $appVersion

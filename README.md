@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.ico" alt="AHKeyMap icon" width="96">
+  <img src="assets/icon.ico" alt="AHKeyMap icon" width="96">
 </p>
 
 # AHKeyMap
@@ -43,7 +43,7 @@ Typical scenarios include:
 
 1. Install AutoHotkey v2 (64-bit).
 2. Clone or download this repository.
-3. Run `AHKeyMap.ahk` (double-click or run via `AutoHotkey64.exe AHKeyMap.ahk`).
+3. Run `src\AHKeyMap.ahk` (double-click or run via `AutoHotkey64.exe src\AHKeyMap.ahk`).
 
 ### Option 2: Prebuilt EXE
 
@@ -57,7 +57,7 @@ If you want to build the executable yourself:
 build.bat
 ```
 
-The script locates Ahk2Exe and the AutoHotkey v2 base and produces `AHKeyMap.exe`.
+The wrapper calls `scripts/build.ps1`, which locates Ahk2Exe and the AutoHotkey v2 base and produces `dist/AHKeyMap.exe`.
 
 ## Automated Tests
 
@@ -66,13 +66,13 @@ AHKeyMap now includes an automated regression suite for config logic, hotkey-eng
 Run the full suite locally:
 
 ```powershell
-pwsh ./scripts/Test.ps1 -Suite all
+pwsh ./scripts/test.ps1 -Suite all
 ```
 
 Run only the fast non-GUI suites:
 
 ```powershell
-pwsh ./scripts/Test.ps1 -Suite unit,integration
+pwsh ./scripts/test.ps1 -Suite unit,integration
 ```
 
 Current suites:
@@ -88,7 +88,7 @@ Artifacts are written to `test-results/`:
 - `screenshots/`: desktop screenshots captured only when a GUI test fails
 - `summary.json`: machine-readable run summary
 
-Real desktop input scenarios such as browser gestures, true global hotkeys, and timing-sensitive mouse/keyboard behavior are still tracked as manual end-to-end checks under `tests/manual-e2e/`.
+Real desktop input scenarios such as browser gestures, true global hotkeys, and timing-sensitive mouse/keyboard behavior are still tracked as manual end-to-end checks under `tests/manual/`.
 
 ## Quick Start
 
@@ -124,7 +124,8 @@ PassthroughMod=1
 
 ## Config Files Overview
 
-- All configs live in `configs/` as separate `.ini` files.
+- In a source checkout, configs live in the repo-root `configs/` directory. In the packaged EXE build, the app uses a sibling `configs/` directory next to `AHKeyMap.exe`.
+- All configs live as separate `.ini` files.
 - Each config has:
   - `[Meta]` section: name and process scope.
   - `[MappingN]` sections: individual hotkey mappings.
@@ -143,7 +144,7 @@ Basic fields:
   - `RepeatDelay`, `RepeatInterval` (ms)
   - `PassthroughMod` (0 = intercept, 1 = passthrough)
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a deeper description of the hotkey engine and config format.
+See [docs/architecture.md](docs/architecture.md) for a deeper description of the hotkey engine and config format.
 
 ## Bilingual UI
 
@@ -166,10 +167,10 @@ The config file format itself is language-agnostic; only the UI strings are loca
 ## Documentation
 
 - Chinese user guide: [README.zh-CN.md](README.zh-CN.md)
-- Architecture and implementation notes: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Architecture and implementation notes: [docs/architecture.md](docs/architecture.md)
 - Agent/automation guidelines: [AGENTS.md](AGENTS.md)
 - Automated test suites: `tests/`
-- Deferred bug backlog: [BUG_BACKLOG.md](BUG_BACKLOG.md)
+- Deferred bug backlog: [docs/bug-backlog.md](docs/bug-backlog.md)
 
 ## License
 

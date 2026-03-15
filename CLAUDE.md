@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> See `AGENTS.md` for the full development spec and `ARCHITECTURE.md` for in-depth design details.
+> See `AGENTS.md` for the full development spec and `docs/architecture.md` for in-depth design details.
 
 ## Commands
 
 ### Run (script mode)
 ```
-AutoHotkey64.exe AHKeyMap.ahk
+AutoHotkey64.exe src\AHKeyMap.ahk
 ```
 AutoHotkey v2 must be installed. Path to `AutoHotkey64.exe` depends on installation location.
 
@@ -23,12 +23,12 @@ No lint tooling is configured.
 
 Automated tests:
 ```
-pwsh ./scripts/Test.ps1 -Suite all
+pwsh ./scripts/test.ps1 -Suite all
 ```
 
 Fast non-GUI loop:
 ```
-pwsh ./scripts/Test.ps1 -Suite unit,integration
+pwsh ./scripts/test.ps1 -Suite unit,integration
 ```
 
 Current suites:
@@ -44,11 +44,12 @@ Manual validation is still needed for true desktop input behavior:
 
 ## Architecture
 
-Single-entry AHK v2 app. `AHKeyMap.ahk` initializes all globals and `#Include`s 7 modules in order:
+Single-entry AHK v2 app. `src/AHKeyMap.ahk` initializes all globals and `#Include`s 8 modules in order:
 
 ```
-Config.ahk → Utils.ahk → Localization.ahk → HotkeyEngine.ahk
-  → KeyCapture.ahk → GuiMain.ahk → MappingEditor.ahk → GuiEvents.ahk
+src/core/Config.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
+  → src/core/HotkeyEngine.ahk → src/core/KeyCapture.ahk
+  → src/ui/GuiMain.ahk → src/ui/MappingEditor.ahk → src/ui/GuiEvents.ahk
 ```
 
 **Module responsibilities:**
@@ -62,8 +63,8 @@ Config.ahk → Utils.ahk → Localization.ahk → HotkeyEngine.ahk
 - `Utils.ahk` — key display conversion, process picker, auto-start
 
 **Automated testing:**
-- `scripts/Test.ps1` discovers and runs `tests/unit`, `tests/integration`, and `tests/gui`
-- `tests/_support/TestBase.ahk` provides assertions, sandbox setup, and cleanup helpers
+- `scripts/test.ps1` discovers and runs `tests/unit`, `tests/integration`, and `tests/gui`
+- `tests/support/TestBase.ahk` provides assertions, sandbox setup, and cleanup helpers
 - GUI failures may produce screenshots under `test-results/screenshots`
 
 **Hotkey engine paths** (`HotkeyEngine.ahk`):
@@ -76,13 +77,13 @@ Config.ahk → Utils.ahk → Localization.ahk → HotkeyEngine.ahk
 ## Critical Rules
 
 ### Versioning — MUST update both on every change
-- `AHKeyMap.ahk` line 13: `;@Ahk2Exe-SetVersion x.y.z`
-- `AHKeyMap.ahk` line 21: `global APP_VERSION := "x.y.z"`
+- `src/AHKeyMap.ahk`: `;@Ahk2Exe-SetVersion x.y.z`
+- `src/AHKeyMap.ahk`: `global APP_VERSION := "x.y.z"`
 
 Rules: new features bump **minor**, bug fixes bump **patch**. Both values must match.
 
 ### Global variable pattern
-- **Only `AHKeyMap.ahk`** initializes globals (`:=`).
+- **Only `src/AHKeyMap.ahk`** initializes globals (`:=`).
 - All modules declare with `global VarName` only — no re-initialization. Re-assigning in a module silently overwrites the main entry value at `#Include` time.
 
 ### Commit & release conventions
@@ -91,7 +92,7 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
   - Use subjects like `feat: add bilingual UI`, `fix: prevent stale state keys`, `docs: rewrite README in English`.
   - If the user explicitly wants Chinese context, append it after the English subject instead of replacing it.
 - Release titles and notes should be written in English. When editing release bodies manually, keep the primary description in English; optional Chinese notes can follow if needed.
- - The repository has a tag-driven release workflow (`.github/workflows/release.yml`) that runs on `push` tags matching `v*.*.*`. After bumping the version in `AHKeyMap.ahk` and committing, you should:
+ - The repository has a tag-driven release workflow (`.github/workflows/release.yml`) that runs on `push` tags matching `v*.*.*`. After bumping the version in `src/AHKeyMap.ahk` and committing, you should:
    - Create an annotated tag `vX.Y.Z` that matches the `APP_VERSION` and `;@Ahk2Exe-SetVersion` values.
    - Push the tag so that GitHub Actions can build and publish the release artifacts.
 

@@ -3,7 +3,7 @@
 ; Lightweight ZH/EN language packs and L(key, args*) helper
 ; ============================================================================
 
-; Declare globals owned/initialized in AHKeyMap.ahk
+; Declare globals owned/initialized in src/AHKeyMap.ahk
 global CurrentLangCode
 
 ; Return language pack Map for given lang code, falling back to en-US

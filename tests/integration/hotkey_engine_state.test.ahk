@@ -4,8 +4,8 @@
 global __AHKM_TEST_MODE := true
 global __AHKM_CONFIG_DIR := A_Temp "\AHKeyMapTests\" A_ScriptName "-" A_TickCount "\configs"
 
-#Include "..\..\AHKeyMap.ahk"
-#Include "..\_support\TestBase.ahk"
+#Include "..\..\src\AHKeyMap.ahk"
+#Include "..\support\TestBase.ahk"
 
 CurrentLangCode := "en-US"
 

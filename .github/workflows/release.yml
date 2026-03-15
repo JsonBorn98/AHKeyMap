@@ -35,7 +35,7 @@ jobs:
           }
 
           $tagVersion = $Matches[1]
-          $appVersion = (& .\scripts\Get-AppVersion.ps1).Trim()
+          $appVersion = (& .\scripts\get-app-version.ps1).Trim()
           if ($tagVersion -ne $appVersion) {
               throw "Tag version $tagVersion does not match app version $appVersion"
           }
@@ -53,14 +53,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          .\scripts\Download-GitHubToolchain.ps1 `
+          .\scripts\download-github-toolchain.ps1 `
             -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
             -Ahk2ExeVersion $env:AHK2EXE_VERSION
 
       - name: Build release artifacts
         shell: pwsh
         run: |
-          .\scripts\Build-Release.ps1 `
+          .\scripts\build.ps1 `
             -Ahk2ExePath $env:AHK2EXE_PATH `
             -BaseFilePath $env:AHK_BASE_FILE
 

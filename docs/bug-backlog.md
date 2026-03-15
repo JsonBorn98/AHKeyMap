@@ -20,7 +20,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待修
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/Config.ahk:51`
+- 文件: `src/core/Config.ahk:51`
 - 影响范围: 配置加载链路、全局变量引用一致性
 - 复现条件: 调用 `LoadAllConfigs()` 时，函数内部会执行 `global AllConfigs := []`
 - 当前观察: 这违反了仓库约定的“模块只声明全局，不重新初始化”。当前启动流程中问题不明显，但如果未来有外部引用依赖原数组对象，重新赋值会让引用失效。
@@ -33,7 +33,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待验证
 - 严重度: Low
 - 置信度: 中
-- 文件: `lib/Config.ahk:333`
+- 文件: `src/core/Config.ahk:333`
 - 影响范围: `_state.ini` 的 `LastConfig` 持久化
 - 复现条件: `_state.ini` 不存在或 `[State].LastConfig` 为空，同时触发 `SaveEnabledStates()`
 - 当前观察: 当前实现只有在 `lastConfig != ""` 时才回写 `[State]`。不过启动后 `RefreshConfigList()` 会进入 `LoadConfigToGui()`，而后者会重新写回 `LastConfig`，所以现阶段更像边界场景而非稳定用户问题。
@@ -46,7 +46,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待验证
 - 严重度: Medium
 - 置信度: 中
-- 文件: `lib/HotkeyEngine.ahk:37`, `lib/HotkeyEngine.ahk:52`
+- 文件: `src/core/HotkeyEngine.ahk:37`, `src/core/HotkeyEngine.ahk:52`
 - 影响范围: 进程作用域判断、冲突排查一致性
 - 复现条件: 同时使用 include 和 exclude 作用域，并在多窗口或焦点快速切换场景下测试
 - 当前观察: `CheckIncludeMatch()` 通过 `WinActive("ahk_exe ...")` 判断，`CheckExcludeMatch()` 通过 `WinGetProcessName("A")` 获取前台进程名判断。大小写本身不是问题，但两种模式采用了不同的匹配机制，行为边界不完全一致。
@@ -59,7 +59,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已修复
 - 严重度: High
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:571`, `lib/HotkeyEngine.ahk:833`
+- 文件: `src/core/HotkeyEngine.ahk:571`, `src/core/HotkeyEngine.ahk:833`
 - 影响范围: 透传模式长按连续触发、按键释放精度
 - 复现条件: 配置路径 C 映射并开启 `HoldRepeat`，按住后在重复间隔之间松开源键
 - 当前观察: 已为路径 C 的 `sourceKey` 按需注册 `Up` 热键，并统一通过 `StopHoldTimer()` 清理长按定时器；快速松键与慢速松键都可在松开时停止连续触发，轮询逻辑继续保留为兜底。
@@ -71,7 +71,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待验证
 - 严重度: Low
 - 置信度: 低
-- 文件: `lib/KeyCapture.ahk:233`
+- 文件: `src/core/KeyCapture.ahk:233`
 - 影响范围: 按键捕获实时显示、复杂组合修正体验
 - 复现条件: 按下 3 键后松开其中 1 键，再补按另一个键，使总键数保持不变
 - 当前观察: 代码只在 `totalPressed >= CaptureKeys.Length` 时更新最大组合。理论上如果组合内容变化但总数不变，旧组合可能被保留下来。不过“全部松开后确认”的交互降低了实际影响。
@@ -84,7 +84,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待修
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/Utils.ahk:109`, `lib/Utils.ahk:161`
+- 文件: `src/shared/Utils.ahk:109`, `src/shared/Utils.ahk:161`
 - 影响范围: 代码可读性、进程选择器状态维护
 - 复现条件: 阅读 `OnProcessPickOK()` 实现
 - 当前观察: 函数开头和结束前各有一次 `global ProcessPickerOpen := false`。虽然不会造成功能错误，但属于冗余状态写入，后续阅读时容易误判是否存在分支差异。
@@ -97,7 +97,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/GuiEvents.ahk:305`
+- 文件: `src/ui/GuiEvents.ahk:305`
 - 影响范围: 映射编辑入口
 - 复现条件: 分别从 ListView 双击和“编辑映射”按钮进入编辑流程
 - 当前观察: `OnEditMapping(ctrl, rowNum := 0, *)` 通过 `if (ctrl = MappingLV)` 区分两个入口，空白区域双击返回、按钮点击读取焦点行，当前逻辑自洽。
@@ -110,7 +110,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:259`
+- 文件: `src/core/HotkeyEngine.ahk:259`
 - 影响范围: 进程作用域规范化性能
 - 复现条件: 构造超大量进程名列表
 - 当前观察: 这里的 O(n2) 排序在当前数据规模下可接受，没有已知错误结果。它更像潜在优化项，不应作为 active bug 处理。
@@ -123,7 +123,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已修复
 - 严重度: Medium
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:559`, `lib/HotkeyEngine.ahk:801`
+- 文件: `src/core/HotkeyEngine.ahk:559`, `src/core/HotkeyEngine.ahk:801`
 - 影响范围: 透传模式、修饰键原始功能保留的一致性
 - 复现条件: 配置路径 C 映射后，在未按住目标 `modKey` 的情况下，按住其他修饰键再触发 `sourceKey`
 - 当前观察: 路径 C 现已改为“统一事件路由 + 修饰键会话”模型。`sourceKey` 始终由 Path C 路由层接管，但只有在存在活跃的目标修饰键会话且命中对应映射时才转发为 `targetKey`；否则会立即回退发送原始 `sourceKey`，从而避免无关修饰键场景下的语义损坏。
@@ -134,7 +134,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待修
 - 严重度: Medium
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:667`
+- 文件: `src/core/HotkeyEngine.ahk:667`
 - 影响范围: 路径 B、鼠标键作为修饰键时的恢复逻辑
 - 复现条件: 将 `MButton`、`XButton1` 等鼠标键作为路径 B 修饰键，并单独按下该修饰键
 - 当前观察: `RestoreModKeyCallback()` 无条件执行 `Send(KeyToSendFormat(modKey))`。对鼠标键来说，这会变成一次模拟点击，不一定符合“恢复原始功能”的直觉。
@@ -147,7 +147,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/Config.ahk:270`
+- 文件: `src/core/Config.ahk:270`
 - 影响范围: 配置保存、INI 节覆盖
 - 复现条件: 删除若干映射后再次保存同一配置
 - 当前观察: 当前实现采用“完整写入临时文件后覆盖原文件”的原子写入方式，旧文件中的多余节不会保留，结论与原疑虑相反。
@@ -160,7 +160,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 高
-- 文件: `lib/Utils.ahk:216`
+- 文件: `src/shared/Utils.ahk:216`
 - 影响范围: 注册表自启命令拼接
 - 复现条件: 在路径包含空格的环境下启用开机自启
 - 当前观察: 当前命令已经对解释器路径和脚本路径分别加双引号，足以处理空格。至于路径包含双引号本身，在 Windows 合法路径中不成立，因此不构成实际 bug。
@@ -173,7 +173,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已合并
 - 严重度: Medium
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk:708`
+- 文件: `src/core/HotkeyEngine.ahk:708`
 - 影响范围: 同 BUG-009
 - 复现条件: 同 BUG-009
 - 当前观察: 原条目关注 fallback `Send` 可能触发自身热键，实质上属于同一段 fallback 转发逻辑的风险讨论。后续统一在 BUG-009 下跟踪，避免重复修复或重复讨论。
@@ -186,7 +186,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 待验证
 - 严重度: Low
 - 置信度: 低
-- 文件: `lib/GuiMain.ahk:133`
+- 文件: `src/ui/GuiMain.ahk:133`
 - 影响范围: 模态窗口销毁、GUI 对象回收
 - 复现条件: 高频创建和销毁模态窗口，并观察内存或句柄变化
 - 当前观察: 目前只有“闭包捕获 `modalGui` 可能延迟 GC”的理论推断，没有观察到泄漏或异常销毁行为。
@@ -201,7 +201,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ### OPT-001: 全量热键重载可优化为增量重载
 - **类型**: ? 优化
-- **文件**: `lib/HotkeyEngine.ahk:140-142`
+- **文件**: `src/core/HotkeyEngine.ahk:140-142`
 - **描述**: `ReloadConfigHotkeys(configName)` 当前直接调用 `ReloadAllHotkeys()`，即使只修改了一个配置也需要卸载并重新注册所有配置的热键。对于少量配置（<10）影响不大，但如果配置数量增多或映射条目很多，每次编辑映射都会触发全量重载。
 - **修复方案**: 实现增量重载——仅卸载并重新注册被修改配置的热键。需要注意路径 C 的修饰键状态是跨配置共享的，需要小心处理。复杂度较高，可在性能成为瓶颈时实施。
 
@@ -209,7 +209,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ### OPT-002: `GetRunningProcesses` 每次打开进程选择器都全量扫描
 - **类型**: ? 优化
-- **文件**: `lib/Utils.ahk:165-201`
+- **文件**: `src/shared/Utils.ahk:165-201`
 - **描述**: 每次打开进程选择器都遍历所有窗口获取进程列表。如果系统窗口很多（>100），可能有可感知的延迟。
 - **修复方案**: 可选：缓存进程列表，设定 TTL（如 5 秒），在 TTL 内复用缓存。优先级低。
 
@@ -217,7 +217,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ### OPT-003: `DetectHotkeyConflicts` 使用 O(n2) 同组比较
 - **类型**: ? 优化
-- **文件**: `lib/HotkeyEngine.ahk:212-234`
+- **文件**: `src/core/HotkeyEngine.ahk:212-234`
 - **描述**: 对同一热键字符串下的所有条目做两两比较。在极端情况下（大量配置映射相同热键），性能可能不理想。但实际使用中同一热键出现在多个配置中的情况很少。
 - **修复方案**: 当前实现足够。如果未来需要，可以用 Map 做去重优化。优先级极低。
 
@@ -225,7 +225,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ### OPT-004: 按键捕获轮询可考虑使用 `Input` 命令替代
 - **类型**: ? 优化
-- **文件**: `lib/KeyCapture.ahk`
+- **文件**: `src/core/KeyCapture.ahk`
 - **描述**: 当前使用 30ms 轮询 `GetKeyState` 检测按键。AHK v2 的 `InputHook` 提供了事件驱动的按键检测，可以减少 CPU 占用并提高响应精度。但 `InputHook` 对鼠标按键支持有限，且当前的"松开时确认"机制需要同时追踪多键状态，`InputHook` 可能不完全适用。
 - **修复方案**: 可部分使用 `InputHook` 替代键盘轮询，鼠标部分保留 `OnMessage`。改动较大，需要充分测试。优先级中等。
 
@@ -233,7 +233,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 
 ### OPT-005: `RefreshConfigList` 每次调用 `GetConfigList()` 重新扫描文件系统
 - **类型**: ? 优化
-- **文件**: `lib/Config.ahk:146-180`
+- **文件**: `src/core/Config.ahk:146-180`
 - **描述**: `RefreshConfigList` 通过 `GetConfigList()` 扫描 `configs/*.ini` 获取配置列表，而不是直接使用已加载的 `AllConfigs`。这导致每次刷新都有一次文件系统 IO。由于配置目录中文件数量通常很少，影响微乎其微。
 - **修复方案**: 可选：从 `AllConfigs` 提取名称列表而非重新扫描文件系统。优先级极低。
 
@@ -243,7 +243,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 状态: 已修复
 - 严重度: Medium
 - 置信度: 高
-- 文件: `lib/HotkeyEngine.ahk`
+- 文件: `src/core/HotkeyEngine.ahk`
 - 影响范围: 使用 `RButton` 作为路径 C 修饰键的鼠标手势（特别是按住右键 + 滚轮）
 - 复现条件: 配置路径 C 映射（`modKey=RButton`，`sourceKey=Wheel*`），按住右键滚动滚轮后松开右键
 - 当前观察: Path C 已重构为“显式修饰键会话 + 统一事件路由”模型：RButton 会话在本次按压期间一旦触发任何 Path C 映射，就被标记为手势会话（`isGesture = true`）。此时引擎不会拦截或模拟 RButton 物理事件，而是在松开后短延迟发送 Escape，尽量关闭可能出现的右键菜单；若本次按压未触发 Path C 映射，则整个右键过程保持原生透传。

@@ -4,25 +4,27 @@ Guidance for agentic coding in this repository.
 This is a Windows AutoHotkey v2 app with a modular AHK layout.
 
 ## Sources of truth
-- Project architecture: `ARCHITECTURE.md`
-- Deferred bugs backlog: `BUG_BACKLOG.md` (read before new bug-fix tasks)
+- Project architecture: `docs/architecture.md`
+- Deferred bugs backlog: `docs/bug-backlog.md` (read before new bug-fix tasks)
 - No Cursor rules or Copilot instructions are present in the repo.
 
 ## Repo map
-- `AHKeyMap.ahk` (~181 lines) — main entry, global variable initialization, named constants, `#Include` list, startup
-- `lib/Config.ahk` (~370 lines) — config load/save (atomic write), config list management, enabled state persistence
-- `lib/Utils.ahk` (~222 lines) — key display conversion, process picker (with dedup), auto-start utilities
-- `lib/Localization.ahk` (~300 lines) — localization packs and `L(key, args*)`
-- `lib/HotkeyEngine.ahk` (~718 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C), conflict detection (including cross-path B/C), scope canonicalization
-- `lib/KeyCapture.ahk` (~480 lines) — key capture mechanism (polling + mouse hook, auto-cancel on focus loss)
-- `lib/GuiMain.ahk` (~161 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
-- `lib/MappingEditor.ahk` (~146 lines) — mapping edit dialog, key capture entry, repeat parameter validation
-- `lib/GuiEvents.ahk` (~402 lines) — GUI event handlers (config CRUD, scope editing, config name validation)
-- `tests/` — automated AHK test suites (`unit`, `integration`, `gui`, `manual-e2e`)
-- `scripts/Test.ps1` — PowerShell test runner, suite discovery, log/screenshot/result collection
+- `src/AHKeyMap.ahk` (~182 lines) — main entry, global variable initialization, named constants, `APP_ROOT` resolution, `#Include` list, startup
+- `src/core/Config.ahk` (~370 lines) — config load/save (atomic write), config list management, enabled state persistence
+- `src/shared/Utils.ahk` (~222 lines) — key display conversion, process picker (with dedup), auto-start utilities
+- `src/core/Localization.ahk` (~300 lines) — localization packs and `L(key, args*)`
+- `src/core/HotkeyEngine.ahk` (~718 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C), conflict detection (including cross-path B/C), scope canonicalization
+- `src/core/KeyCapture.ahk` (~480 lines) — key capture mechanism (polling + mouse hook, auto-cancel on focus loss)
+- `src/ui/GuiMain.ahk` (~161 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
+- `src/ui/MappingEditor.ahk` (~146 lines) — mapping edit dialog, key capture entry, repeat parameter validation
+- `src/ui/GuiEvents.ahk` (~402 lines) — GUI event handlers (config CRUD, scope editing, config name validation)
+- `tests/` — automated AHK test suites (`unit`, `integration`, `gui`, `manual`)
+- `tests/support/TestBase.ahk` — shared test assertions, sandbox reset helpers, and send capture utilities
+- `scripts/test.ps1` — PowerShell test runner, suite discovery, log/screenshot/result collection
 - `configs/` — runtime INI files (gitignored)
-- `build.bat` — compile script for Ahk2Exe
-- `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `dist/`, `test-results/`, `*.bak`, `*.tmp`, `.claude/`, `.cursor/`
+- `assets/icon.ico` — application icon used by README and packaged builds
+- `build.bat` — thin wrapper around `scripts/build.ps1`
+- `.gitignore` — ignores `configs/`, `dist/`, `test-results/`, `*.bak`, `*.tmp`, `.claude/`, `.cursor/`
 
 ## Build / run / test
 
@@ -34,7 +36,7 @@ Locates Ahk2Exe and AutoHotkey v2 base automatically (Program Files, LocalAppDat
 
 ### Run (script mode)
 ```
-AutoHotkey64.exe AHKeyMap.ahk
+AutoHotkey64.exe src\AHKeyMap.ahk
 ```
 Path varies by installation.
 
@@ -44,12 +46,12 @@ No lint tooling configured.
 ### Tests
 Automated regression suite:
 ```
-pwsh ./scripts/Test.ps1 -Suite all
+pwsh ./scripts/test.ps1 -Suite all
 ```
 
 Fast inner loop (non-GUI):
 ```
-pwsh ./scripts/Test.ps1 -Suite unit,integration
+pwsh ./scripts/test.ps1 -Suite unit,integration
 ```
 
 Coverage today:
@@ -65,8 +67,8 @@ Manual validation is still required for true desktop end-to-end input scenarios:
 
 ## Versioning (MUST follow)
 Every change must update version in **both** places:
-- `AHKeyMap.ahk` line 13: `;@Ahk2Exe-SetVersion x.y.z`
-- `AHKeyMap.ahk` line 21: `global APP_VERSION := "x.y.z"`
+- `src/AHKeyMap.ahk`: `;@Ahk2Exe-SetVersion x.y.z`
+- `src/AHKeyMap.ahk`: `global APP_VERSION := "x.y.z"`
 
 Rules: new features bump minor, bug fixes bump patch. Both values must match.
 
@@ -83,24 +85,24 @@ Rules: new features bump minor, bug fixes bump patch. Both values must match.
 - Tag format: `vX.Y.Z` (already enforced by CI); release titles remain English (e.g. `AHKeyMap v2.7.0`).
 - If you edit release bodies or changelog text manually (via `gh release` or GitHub UI), use English descriptions; Chinese notes can be added as a secondary explanation if needed.
  - After the user approves a release-ready change (version bumped and committed), create and push a tag that matches the app version to trigger the `.github/workflows/release.yml` pipeline:
-   - Tag name must be `vX.Y.Z` and must match `APP_VERSION` in `AHKeyMap.ahk`.
+   - Tag name must be `vX.Y.Z` and must match `APP_VERSION` in `src/AHKeyMap.ahk`.
    - The tag should point at a commit that is reachable from `master` (as validated by the workflow).
 
 ## Include order and module boundaries
-`AHKeyMap.ahk` owns the `#Include` list. Current order:
-1. `lib/Config.ahk`
-2. `lib/Utils.ahk`
-3. `lib/Localization.ahk`
-4. `lib/HotkeyEngine.ahk`
-5. `lib/KeyCapture.ahk`
-6. `lib/GuiMain.ahk`
-7. `lib/MappingEditor.ahk`
-8. `lib/GuiEvents.ahk`
+`src/AHKeyMap.ahk` owns the `#Include` list. Current order:
+1. `src/core/Config.ahk`
+2. `src/shared/Utils.ahk`
+3. `src/core/Localization.ahk`
+4. `src/core/HotkeyEngine.ahk`
+5. `src/core/KeyCapture.ahk`
+6. `src/ui/GuiMain.ahk`
+7. `src/ui/MappingEditor.ahk`
+8. `src/ui/GuiEvents.ahk`
 
 Boundaries:
-- GUI construction → `GuiMain.ahk`; event handlers → `GuiEvents.ahk`
-- Hotkey registration/cleanup → `HotkeyEngine.ahk`
-- New modules: add to `#Include` list in `AHKeyMap.ahk` only.
+- GUI construction → `src/ui/GuiMain.ahk`; event handlers → `src/ui/GuiEvents.ahk`
+- Hotkey registration/cleanup → `src/core/HotkeyEngine.ahk`
+- New modules: add to the `#Include` list in `src/AHKeyMap.ahk` only.
 
 ## Code style guidelines
 
@@ -110,10 +112,10 @@ Boundaries:
 - **Source language:** Code, identifiers, comments and new documentation should default to English.
 - **Localization:** User-facing UI strings must go through the localization layer (`L(key, args*)`) and provide at least English and Simplified Chinese variants. Do not hardcode Chinese labels directly in code.
   - Default UI language on a fresh install is English (`en-US`); do not infer startup language from OS locale.
-  - Chinese UI text lives in the `BuildZhPack()` language pack and Chinese-facing docs (for example `README.zh-CN.md`, `BUG_BACKLOG.md`), not as inline literals in .ahk source.
+  - Chinese UI text lives in the `BuildZhPack()` language pack and Chinese-facing docs (for example `README.zh-CN.md`, `docs/bug-backlog.md`), not as inline literals in .ahk source.
 
 ### Global variable pattern (CRITICAL)
-- All globals defined and initialized in `AHKeyMap.ahk` only.
+- All globals defined and initialized in `src/AHKeyMap.ahk` only.
 - Modules declare them with `global VarName` at top of file (no re-initialization).
 - Violating this causes silent overwrite at `#Include` time.
 
