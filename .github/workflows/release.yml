@@ -49,6 +49,8 @@ jobs:
           "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download AutoHotkey toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           .\scripts\Download-GitHubToolchain.ps1 `

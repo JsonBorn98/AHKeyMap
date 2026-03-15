@@ -33,6 +33,8 @@ jobs:
           Write-Host "Validated version $version"
 
       - name: Download AutoHotkey toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           .\scripts\Download-GitHubToolchain.ps1 `
