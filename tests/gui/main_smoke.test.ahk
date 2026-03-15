@@ -61,7 +61,8 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
 
     OnChangeProcess()
     changeGui := GetGuiByTitle(L("GuiEvents.ChangeScope.Title"))
-    changeGui["ProcessMode"].Value := 2
+    ControlClick(L("GuiEvents.NewConfig.ScopeInclude"), "ahk_id " changeGui.Hwnd)
+    WaitForCondition((*) => changeGui["ProcName"].Enabled, 250, 10, "Include scope editor did not enable the process list input.")
     changeGui["ProcName"].Value := "notepad.exe`ncode.exe"
     OnChangeProcessOK(changeGui)
 

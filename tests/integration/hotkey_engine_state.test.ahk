@@ -109,8 +109,8 @@ Test_PathC_SourceUp_StopsActiveRepeats() {
     session.activeSources["F14"] := [mappingId]
     session.repeatMappings[mappingId] := true
     HoldTimers[mappingId] := {
-        fn: Func("NoOpTimer"),
-        startFn: Func("NoOpTimer"),
+        fn: NoOpTimer,
+        startFn: NoOpTimer,
         interval: 50,
         active: true
     }

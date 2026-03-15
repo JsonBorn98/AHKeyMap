@@ -8,6 +8,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Resolve-ExistingPath {
     param(
@@ -75,13 +76,11 @@ function Resolve-AutoHotkeyRuntime {
         return (Resolve-Path -LiteralPath $env:AHK_BASE_FILE).Path
     }
 
-    $command = Get-Command AutoHotkey64.exe, AutoHotkey.exe, autohotkey.exe -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($command) {
-        return $command.Source
-    }
-
     $candidates = @()
+    if ($env:USERPROFILE) {
+        $candidates += Join-Path $env:USERPROFILE "scoop\apps\autohotkey\current\v2\AutoHotkey64.exe"
+        $candidates += Join-Path $env:USERPROFILE "scoop\apps\autohotkey\current\v2\AutoHotkey32.exe"
+    }
     if ($env:ProgramFiles) {
         $candidates += Join-Path $env:ProgramFiles "AutoHotkey\v2\AutoHotkey64.exe"
         $candidates += Join-Path $env:ProgramFiles "AutoHotkey\AutoHotkey64.exe"
@@ -99,6 +98,12 @@ function Resolve-AutoHotkeyRuntime {
         if (Test-Path -LiteralPath $candidate) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
+    }
+
+    $command = Get-Command AutoHotkey64.exe, AutoHotkey.exe, autohotkey.exe -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($command) {
+        return $command.Source
     }
 
     throw "AutoHotkey runtime not found. Provide -AutoHotkeyPath or set AHK_BASE_FILE."
@@ -121,20 +126,108 @@ function Get-TestFilesForSuite {
         Sort-Object FullName)
 }
 
-function ConvertTo-OutputText {
+function Join-ProcessOutputText {
     param(
-        $OutputValue
+        [AllowEmptyString()]
+        [string]$StdOut,
+        [AllowEmptyString()]
+        [string]$StdErr
     )
 
-    if ($null -eq $OutputValue) {
+    $sections = New-Object System.Collections.Generic.List[string]
+
+    if (-not [string]::IsNullOrWhiteSpace($StdOut)) {
+        $sections.Add(("--- stdout ---{0}{1}" -f [Environment]::NewLine, $StdOut.TrimEnd([char[]]"`r`n")))
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($StdErr)) {
+        $sections.Add(("--- stderr ---{0}{1}" -f [Environment]::NewLine, $StdErr.TrimEnd([char[]]"`r`n")))
+    }
+
+    if ($sections.Count -eq 0) {
         return ""
     }
 
-    if ($OutputValue -is [System.Array]) {
-        return ($OutputValue | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+    return ($sections -join [Environment]::NewLine)
+}
+
+function Test-FileHasContent {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
     }
 
-    return $OutputValue.ToString()
+    return (Get-Item -LiteralPath $Path).Length -gt 0
+}
+
+function Write-Utf8TextFile {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$Text
+    )
+
+    [System.IO.File]::WriteAllText($Path, $Text, $script:Utf8NoBom)
+}
+
+function Append-Utf8TextFile {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$Text
+    )
+
+    [System.IO.File]::AppendAllText($Path, $Text, $script:Utf8NoBom)
+}
+
+function Invoke-TestProcess {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RuntimePath,
+        [Parameter(Mandatory)]
+        [string]$TestPath,
+        [Parameter(Mandatory)]
+        [string]$WorkingDirectory,
+        [Parameter(Mandatory)]
+        [string]$LogPath
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $RuntimePath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $startInfo.ArgumentList.Add('/ErrorStdOut=UTF-8')
+    $startInfo.ArgumentList.Add($TestPath)
+    $startInfo.Environment['AHKM_TEST_LOG_FILE'] = $LogPath
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+
+    try {
+        $null = $process.Start()
+        $stdOut = $process.StandardOutput.ReadToEnd()
+        $stdErr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+
+        return [pscustomobject]@{
+            exitCode = $process.ExitCode
+            stdOut = $stdOut
+            stdErr = $stdErr
+        }
+    } finally {
+        $process.Dispose()
+    }
 }
 
 function Save-DesktopScreenshot {
@@ -208,14 +301,23 @@ try {
             $testName = [System.IO.Path]::GetFileNameWithoutExtension($testFile.Name)
             $logPath = Join-Path $suiteLogDir ($testName + ".log")
             $startTime = Get-Date
-            $global:LASTEXITCODE = 0
-            $output = & $runtimePath '/ErrorStdOut=UTF-8' $testFile.FullName 2>&1
-            $exitCodeVar = Get-Variable LASTEXITCODE -ErrorAction SilentlyContinue
-            $exitCode = if ($exitCodeVar) { [int]$exitCodeVar.Value } else { 0 }
-            $durationMs = [int]((Get-Date) - $startTime).TotalMilliseconds
-            $outputText = ConvertTo-OutputText -OutputValue $output
+            $processResult = Invoke-TestProcess -RuntimePath $runtimePath -TestPath $testFile.FullName -WorkingDirectory $ProjectRoot -LogPath $logPath
 
-            Set-Content -LiteralPath $logPath -Value $outputText -Encoding utf8
+            $durationMs = [int]((Get-Date) - $startTime).TotalMilliseconds
+            $exitCode = [int]$processResult.exitCode
+            $outputText = Join-ProcessOutputText -StdOut $processResult.stdOut -StdErr $processResult.stdErr
+            $status = if ($exitCode -eq 0) { "passed" } else { "failed" }
+
+            if (-not [string]::IsNullOrWhiteSpace($outputText)) {
+                $separator = if (Test-FileHasContent -Path $logPath) {
+                    [Environment]::NewLine
+                } else {
+                    ""
+                }
+                $trimmedOutput = $outputText.TrimEnd([char[]]"`r`n")
+                $processBlock = "{0}--- process output ---{1}{2}{1}" -f $separator, [Environment]::NewLine, $trimmedOutput
+                Append-Utf8TextFile -Path $logPath -Text $processBlock
+            }
 
             $screenshotPath = $null
             if ($exitCode -ne 0 -and $suiteName -eq "gui") {
@@ -223,7 +325,16 @@ try {
                 $screenshotPath = Save-DesktopScreenshot -Path (Join-Path $screenshotsRoot $shotName)
             }
 
-            $status = if ($exitCode -eq 0) { "passed" } else { "failed" }
+            if (-not (Test-FileHasContent -Path $logPath)) {
+                $fallbackLog = @(
+                    "SUITE $suiteName/$($testFile.Name)"
+                    "STATUS $status"
+                    "EXIT_CODE $exitCode"
+                    "NOTE No direct test log or process output was captured."
+                ) -join [Environment]::NewLine
+                Write-Utf8TextFile -Path $logPath -Text ($fallbackLog + [Environment]::NewLine)
+            }
+
             $results.Add([pscustomobject]@{
                 suite = $suiteName
                 test = $testFile.Name

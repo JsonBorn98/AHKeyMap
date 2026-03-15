@@ -47,12 +47,12 @@ pwsh ./scripts/test.ps1 -Suite unit,integration
 - `integration`：配置读写、冲突检测、热键引擎状态
 - `gui`：主界面配置流程的冒烟测试
 
-测试运行时会使用隔离的临时配置目录，不会改写你真实的 `configs/`。
+每个 `*.test.ahk` 都会在独立的 AutoHotkey 进程里执行。测试运行时会使用隔离的临时配置目录，不会改写你真实的 `configs/`。
 测试产物会输出到 `test-results/`：
 
-- `logs/`：每个测试文件一份日志
+- `logs/`：每个测试文件一份详细日志，包含测试文件信息、每条用例的 `START` / `PASS` / `FAIL` 记录，以及失败详情
 - `screenshots/`：只有 GUI 测试失败时才会抓取桌面截图
-- `summary.json`：机器可读的汇总结果
+- `summary.json`：机器可读的汇总结果，包含 suite / 状态 / 退出码等信息
 
 像浏览器手势、真实全局热键、以及对键鼠物理输入时序很敏感的场景，目前仍然保留为手工端到端检查，说明放在 `tests/manual/`。
 

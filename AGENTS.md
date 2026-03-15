@@ -20,7 +20,7 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 - `src/ui/GuiEvents.ahk` (~402 lines) — GUI event handlers (config CRUD, scope editing, config name validation)
 - `tests/` — automated AHK test suites (`unit`, `integration`, `gui`, `manual`)
 - `tests/support/TestBase.ahk` — shared test assertions, sandbox reset helpers, and send capture utilities
-- `scripts/test.ps1` — PowerShell test runner, suite discovery, log/screenshot/result collection
+- `scripts/test.ps1` — PowerShell test runner, suite discovery, one-process-per-test execution, log/screenshot/result collection
 - `configs/` — runtime INI files (gitignored)
 - `assets/icon.ico` — application icon used by README and packaged builds
 - `build.bat` — thin wrapper around `scripts/build.ps1`
@@ -58,6 +58,11 @@ Coverage today:
 - `unit` — pure helpers, formatting, scope logic
 - `integration` — config I/O, conflict detection, hotkey engine state
 - `gui` — in-process GUI smoke flow for config CRUD and mapping edits
+
+Test artifacts:
+- Human-readable logs land under `test-results/logs/`
+- `test-results/summary.json` is the machine-readable run summary
+- GUI failures may also emit screenshots under `test-results/screenshots/`
 
 Manual validation is still required for true desktop end-to-end input scenarios:
 - Exercise Hotkey paths A/B/C against a real target app

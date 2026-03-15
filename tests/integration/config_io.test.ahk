@@ -16,7 +16,18 @@ RegisterTest("LoadAllConfigs reuses the existing AllConfigs array", Test_LoadAll
 RunRegisteredTests()
 
 Test_SaveConfig_WritesAtomicallyAndRoundTrips() {
-    mappings := [MakeMapping("CapsLock", "F13", "^c", 1, 120, 40, 0)]
+    global CurrentConfigName
+    global CurrentConfigFile
+    global CurrentProcessMode
+    global CurrentProcess
+    global CurrentProcessList
+    global CurrentExcludeProcess
+    global CurrentExcludeProcessList
+    global CurrentConfigEnabled
+    global Mappings
+    global AllConfigs
+
+    roundTripMappings := [MakeMapping("CapsLock", "F13", "^c", 1, 120, 40, 0)]
 
     CurrentConfigName := "RoundTrip"
     CurrentConfigFile := CONFIG_DIR "\RoundTrip.ini"
@@ -27,9 +38,9 @@ Test_SaveConfig_WritesAtomicallyAndRoundTrips() {
     CurrentExcludeProcessList := []
     CurrentConfigEnabled := true
     Mappings.Length := 0
-    Mappings.Push(mappings[1])
+    Mappings.Push(roundTripMappings[1])
 
-    AllConfigs.Push(BuildConfigRecord("RoundTrip", CurrentProcessMode, CurrentProcess, "", true, mappings))
+    AllConfigs.Push(BuildConfigRecord("RoundTrip", CurrentProcessMode, CurrentProcess, "", true, roundTripMappings))
 
     SaveConfig()
 
@@ -48,6 +59,9 @@ Test_SaveConfig_WritesAtomicallyAndRoundTrips() {
 }
 
 Test_SaveEnabledStates_PreservesStateMetadata() {
+    global CurrentLangCode
+    global AllConfigs
+
     IniWrite("SmokeConfig", STATE_FILE, "State", "LastConfig")
     CurrentLangCode := "zh-CN"
 
@@ -65,6 +79,8 @@ Test_SaveEnabledStates_PreservesStateMetadata() {
 }
 
 Test_LoadAllConfigs_ReusesExistingArrayObject() {
+    global AllConfigs
+
     originalPtr := ObjPtr(AllConfigs)
 
     SeedConfigFile("Alpha", "global", "", "", [MakeMapping("", "F13", "^c")], 1)

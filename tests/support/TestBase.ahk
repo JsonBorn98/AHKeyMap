@@ -3,6 +3,7 @@
 global TestCases := []
 global TestResults := []
 global CapturedSendKeys := []
+global TestLogFile := ""
 
 RegisterTest(name, fn) {
     TestCases.Push({
@@ -20,6 +21,7 @@ RunRegisteredTests() {
     for _, testCase in TestCases {
         ResetTestSandbox()
         startTick := A_TickCount
+        LogTestLine(Format("START {1}", testCase.name))
 
         try {
             testCase.fn.Call()
@@ -33,13 +35,15 @@ RunRegisteredTests() {
             passCount++
         } catch as e {
             durationMs := A_TickCount - startTick
+            errorMessage := FormatErrorMessage(e)
             TestResults.Push({
                 name: testCase.name,
                 status: "fail",
                 durationMs: durationMs,
-                message: FormatErrorMessage(e)
+                message: errorMessage
             })
-            LogTestLine(Format("FAIL {1} ({2} ms): {3}", testCase.name, durationMs, FormatErrorMessage(e)))
+            LogTestLine(Format("FAIL {1} ({2} ms)", testCase.name, durationMs))
+            LogTestError(e, errorMessage)
             failCount++
         } finally {
             try CleanupAfterTest()
@@ -47,6 +51,7 @@ RunRegisteredTests() {
     }
 
     CleanupAfterSuite()
+    LogTestLine(Format("FINISHED {1}", FormatTime(, "yyyy-MM-dd HH:mm:ss")))
     LogTestLine(Format("SUMMARY pass={1} fail={2}", passCount, failCount))
     ExitApp(failCount > 0 ? 1 : 0)
 }
@@ -54,6 +59,14 @@ RunRegisteredTests() {
 InitializeTestSuite() {
     global CurrentLangCode := "en-US"
     global DispatchSendHook := ""
+    global TestLogFile := ResolveTestLogFile()
+
+    if (TestLogFile != "") && FileExist(TestLogFile)
+        FileDelete(TestLogFile)
+
+    LogTestLine(Format("SUITE {1}", A_ScriptFullPath))
+    LogTestLine(Format("STARTED {1}", FormatTime(, "yyyy-MM-dd HH:mm:ss")))
+    LogTestLine(Format("CONFIG_DIR {1}", CONFIG_DIR))
     ResetTestSandbox()
 }
 
@@ -371,8 +384,9 @@ ReadStateValue(section, key, defaultValue := "") {
 }
 
 EnableSendCapture() {
-    global DispatchSendHook := Func("RecordCapturedSend")
+    global DispatchSendHook
     global CapturedSendKeys
+    DispatchSendHook := RecordCapturedSend
     CapturedSendKeys.Length := 0
 }
 
@@ -437,6 +451,42 @@ FormatErrorMessage(err) {
     return message
 }
 
+LogTestError(err, defaultMessage := "") {
+    errorMessage := defaultMessage != "" ? defaultMessage : FormatErrorMessage(err)
+    LogTestLine(Format("Message: {1}", errorMessage))
+    try {
+        if (err.What != "")
+            LogTestLine(Format("What: {1}", err.What))
+    }
+    try {
+        if (err.Line != "")
+            LogTestLine(Format("Line: {1}", err.Line))
+    }
+    try {
+        if (err.File != "")
+            LogTestLine(Format("File: {1}", err.File))
+    }
+}
+
+ResolveTestLogFile() {
+    global TestLogFile
+    if (TestLogFile != "")
+        return TestLogFile
+
+    TestLogFile := EnvGet("AHKM_TEST_LOG_FILE")
+    return TestLogFile
+}
+
+WriteTestLogLine(message) {
+    logFile := ResolveTestLogFile()
+    if (logFile != "") {
+        FileAppend(message "`r`n", logFile, "UTF-8")
+        return
+    }
+
+    FileAppend(message "`r`n", "*")
+}
+
 LogTestLine(message) {
-    FileAppend(message "`n", "*")
+    WriteTestLogLine(message)
 }

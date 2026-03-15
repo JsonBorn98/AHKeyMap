@@ -103,6 +103,7 @@ global CaptureMouseKeys := Map()
 
 ; Process picker globals
 global ProcessPickerOpen := false
+global ProcessPickerGui := ""
 
 ; ============================================================================
 ; Include modules

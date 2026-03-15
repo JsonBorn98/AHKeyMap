@@ -36,6 +36,11 @@ Current suites:
 - `integration` — config I/O, conflict detection, hotkey-engine state
 - `gui` — in-process GUI smoke flow
 
+Test artifacts:
+- `test-results/logs` contains one detailed log per test file
+- `test-results/summary.json` is the machine-readable run summary
+- GUI failures may also produce screenshots under `test-results/screenshots`
+
 Manual validation is still needed for true desktop input behavior:
 - Exercise hotkey paths A/B/C against a real target app
 - Confirm Path C `RButton` gesture / wheel behavior
@@ -63,8 +68,8 @@ src/core/Config.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
 - `Utils.ahk` — key display conversion, process picker, auto-start
 
 **Automated testing:**
-- `scripts/test.ps1` discovers and runs `tests/unit`, `tests/integration`, and `tests/gui`
-- `tests/support/TestBase.ahk` provides assertions, sandbox setup, and cleanup helpers
+- `scripts/test.ps1` discovers `tests/unit`, `tests/integration`, and `tests/gui`, then runs each `*.test.ahk` in its own AutoHotkey process and waits for the real exit code
+- `tests/support/TestBase.ahk` provides assertions, sandbox setup, cleanup helpers, and direct per-test log writing via `AHKM_TEST_LOG_FILE`
 - GUI failures may produce screenshots under `test-results/screenshots`
 
 **Hotkey engine paths** (`HotkeyEngine.ahk`):

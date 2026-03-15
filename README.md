@@ -81,12 +81,12 @@ Current suites:
 - `integration`: config I/O, conflict detection, hotkey-engine state
 - `gui`: in-process GUI smoke test for the main config workflow
 
-Test runs use an isolated temporary config directory and do not modify your real `configs/` folder.
+Each `*.test.ahk` file runs in its own AutoHotkey process. Test runs use an isolated temporary config directory and do not modify your real `configs/` folder.
 Artifacts are written to `test-results/`:
 
-- `logs/`: one log per test file
+- `logs/`: one detailed log per test file, including suite metadata, per-test `START` / `PASS` / `FAIL` lines, and failure details when a case breaks
 - `screenshots/`: desktop screenshots captured only when a GUI test fails
-- `summary.json`: machine-readable run summary
+- `summary.json`: machine-readable run summary with suite / status / exit-code information
 
 Real desktop input scenarios such as browser gestures, true global hotkeys, and timing-sensitive mouse/keyboard behavior are still tracked as manual end-to-end checks under `tests/manual/`.
 

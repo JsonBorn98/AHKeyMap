@@ -35,7 +35,7 @@ Test_IsValidConfigName_ValidatesReservedCharacters() {
     AssertTrue(IsValidConfigName("Browser.Tools"))
     AssertFalse(IsValidConfigName("bad|name"))
     AssertFalse(IsValidConfigName("bad:name"))
-    AssertFalse(IsValidConfigName("bad""name"))
+    AssertFalse(IsValidConfigName("bad`"name"))
 }
 
 Test_FormatProcessDisplay_UsesLocalizedSummary() {

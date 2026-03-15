@@ -238,6 +238,9 @@ UpdateStatusText() {
 
     ; When warnings exist: make status text orange and show detail link
     global StatusHasWarning := hasWarning
+    if (StatusText = "" || StatusDetailLink = "")
+        return
+
     if (hasWarning) {
         StatusText.SetFont("cE07B00")
         StatusDetailLink.Opt("-Hidden")

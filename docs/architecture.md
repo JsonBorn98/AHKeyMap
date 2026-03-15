@@ -29,6 +29,7 @@
 
 ### 测试入口
 - 顶层入口：`scripts/test.ps1`
+- Runner 会按目录约定发现测试文件，并把每个 `*.test.ahk` 作为独立 AutoHotkey 进程执行，等待退出码后再汇总结果。
 - 测试文件按约定分层放在：
   - `tests/unit/*.test.ahk`
   - `tests/integration/*.test.ahk`
@@ -43,6 +44,9 @@
 
 ### 测试基建
 - `tests/support/TestBase.ahk` 提供断言、临时目录清理、GUI/热键状态重置、发送捕获等公共能力。
+- Runner 通过环境变量 `AHKM_TEST_LOG_FILE` 把每个测试文件对应的日志路径传给 `TestBase.ahk`，由测试进程直接写入 `test-results/logs/`。
+- 日志格式以“人可读排障”为主：包含 `SUITE`、`STARTED`、每条用例的 `START` / `PASS` / `FAIL`、失败明细，以及 `SUMMARY`；若测试进程输出了 `stdout` / `stderr`，Runner 会在日志末尾追加对应片段。
+- `test-results/summary.json` 是机器可读汇总，GUI 失败时可同时在 `test-results/screenshots/` 找到桌面截图。
 - `gui` 层目前属于“进程内 GUI 冒烟测试”，验证主界面流程与磁盘状态，不做真实物理键鼠回放。
 - 真实桌面输入、浏览器手势、时序敏感场景仍保留为手工 E2E 检查。
 
