@@ -1,9 +1,9 @@
 ; ============================================================================
-; AHKeyMap - 热键引擎模块
-; 负责热键注册、回调处理、长按连续触发等核心功能
+; AHKeyMap - Hotkey engine module
+; Registers hotkeys, routes callbacks, and handles long-press repeat
 ; ============================================================================
 
-; 声明跨文件使用的全局变量
+; Globals shared across modules
 global AllConfigs
 global ActiveHotkeys
 global HoldTimers
@@ -18,11 +18,11 @@ global PathCSourceKeysUsed
 global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
-; 热键引擎核心
+; Hotkey engine core
 ; ============================================================================
 
-; 创建进程匹配闭包工厂函数
-; 根据配置的 processMode 返回对应的 HotIf 条件函数
+; Factory for process-matching closures
+; Returns a HotIf predicate based on config's processMode
 MakeProcessChecker(cfg) {
     mode := cfg["processMode"]
     if (mode = "include") {
@@ -39,7 +39,7 @@ MakeProcessChecker(cfg) {
     return ""
 }
 
-; include 模式：前台窗口匹配任一进程时返回 true
+; include mode: true when foreground window matches any process in the list
 CheckIncludeMatch(procList) {
     for procName in procList {
         if WinActive("ahk_exe " procName)
@@ -48,7 +48,7 @@ CheckIncludeMatch(procList) {
     return false
 }
 
-; exclude 模式：前台窗口不在排除列表中时返回 true
+; exclude mode: true when foreground process is not in the excluded list
 CheckExcludeMatch(exclList) {
     try
         fgProc := WinGetProcessName("A")
@@ -61,7 +61,7 @@ CheckExcludeMatch(exclList) {
     return true
 }
 
-; 向数组追加唯一值
+; Append a unique value to an array
 AddUniqueArrayValue(arr, value) {
     for _, existingValue in arr {
         if (existingValue = value)
@@ -70,35 +70,41 @@ AddUniqueArrayValue(arr, value) {
     arr.Push(value)
 }
 
-; 路径 C 的 sourceKey 仅在可监听 KeyUp 时注册 Up 热键
+; For Path C, only register Up hotkeys on source keys that support key-up
 SupportsKeyUpHotkey(hotkeyName) {
     baseKey := RegExReplace(hotkeyName, "^[~*$+!#^]+", "")
     return !RegExMatch(baseKey, "^Wheel")
 }
 
-; 卸载所有当前热键
+; Unregister all currently active hotkeys
 UnregisterAllHotkeys() {
-    ; 先构造一个轻量级快照，避免在卸载过程中引用可能已被其他逻辑修改的对象结构
+    ; Build a lightweight snapshot first to avoid mutating the source structure while iterating
     hotkeysSnapshot := []
     for _, hk in ActiveHotkeys {
+        ; Defensive check: only handle Map objects created by this engine
         if (Type(hk) != "Map")
             continue
-        if !hk.Has("key")
-            continue
 
+        ; Avoid Map.Has to work around a known engine crash; use try-read instead
         checkerVal := ""
-        if (hk.Has("checker") && hk["checker"] != "")
-            checkerVal := hk["checker"]
-
-        keyVal := hk["key"]
+        keyVal := ""
         keyUpVal := ""
-        if (hk.Has("keyUp"))
-            keyUpVal := hk["keyUp"]
+
+        try keyVal := hk["key"]
+        catch
+            continue  ; unexpected shape, skip it
+
+        try {
+            if (hk["checker"] != "")
+                checkerVal := hk["checker"]
+        }
+
+        try keyUpVal := hk["keyUp"]
 
         hotkeysSnapshot.Push({ checker: checkerVal, key: keyVal, keyUp: keyUpVal })
     }
 
-    ; 立即清空全局状态，防止后续逻辑继续持有旧对象引用
+    ; Clear global state immediately so later logic does not hold stale references
     HotIf()
     global ActiveHotkeys := []
     global InterceptModKeys := Map()
@@ -110,7 +116,7 @@ UnregisterAllHotkeys() {
     global PathCModsUsed := Map()
     global PathCSourceKeysUsed := Map()
 
-    ; 再根据快照逐个卸载热键，过程中的脚本级错误以防御方式忽略，避免影响整体清理
+    ; Then disable each hotkey from the snapshot, ignoring script-level cleanup errors
     for _, info in hotkeysSnapshot {
         try {
             if (info.checker != "")
@@ -129,12 +135,11 @@ UnregisterAllHotkeys() {
     HotIf()
 }
 
-; 重新加载所有已启用配置的热键
+; Reload hotkeys for all enabled configs
 ReloadAllHotkeys() {
     UnregisterAllHotkeys()
 
-    ; 按优先级排序：include > exclude > global
-    ; 收集各类配置
+    ; Split configs by scope priority: include > exclude > global
     includeConfigs := []
     excludeConfigs := []
     globalConfigs := []
@@ -154,7 +159,7 @@ ReloadAllHotkeys() {
             globalConfigs.Push(cfg)
     }
 
-    ; 按优先级注册：include 最先（最具体），global 最后
+    ; Register in priority order: include first (most specific), global last
     for _, cfg in includeConfigs
         RegisterConfigHotkeys(cfg)
     for _, cfg in excludeConfigs
@@ -162,32 +167,32 @@ ReloadAllHotkeys() {
     for _, cfg in globalConfigs
         RegisterConfigHotkeys(cfg)
 
-    ; 为所有路径 C 映射注册统一的修饰键与源键路由热键
+    ; Register shared routing hotkeys for all Path C mappings
     RegisterAllPathCHotkeys()
 
     HotIf()
 
-    ; 检测热键冲突并更新状态栏
+    ; Detect hotkey conflicts and update the status bar
     DetectHotkeyConflicts()
     UpdateStatusText()
 }
 
 
-; 重载单个配置的热键（因修饰键共享状态，当前实现为全量重载）
+; Reload hotkeys for a single config (implemented as full reload for now)
 ReloadConfigHotkeys(configName := "") {
     ReloadAllHotkeys()
 }
 
-; 检测热键冲突：扫描所有已启用配置的映射，找出作用域重叠的重复热键
-; 冲突规则：
-;   global 与任意非空作用域 → 冲突（作用域重叠）
-;   exclude vs exclude → 冲突（保守策略，排除列表不同也可能重叠）
-;   include vs include（进程列表有交集）→ 冲突
-;   include vs global：include 非空即冲突
+; Detect hotkey conflicts across enabled configs with overlapping scopes
+; Conflict rules:
+;   global vs any non-empty scope -> conflict
+;   exclude vs exclude -> conflict (conservative strategy)
+;   include vs include -> conflict when process lists intersect
+;   include vs global -> conflict when include is non-empty
 DetectHotkeyConflicts() {
     global HotkeyConflicts := []
 
-    ; 收集所有已启用配置的映射，附带作用域信息
+    ; Collect mappings from enabled configs together with scope metadata
     hotkeyGroups := Map()
     modUsageB := Map()
     modUsageC := Map()
@@ -199,7 +204,7 @@ DetectHotkeyConflicts() {
             continue
 
         mode := cfg["processMode"]
-        ; procKey 用于 include 模式下区分不同进程列表
+        ; procKey distinguishes process lists for include/exclude scopes
         if (mode = "include")
             procKey := CanonicalizeProcessScope(cfg["process"])
         else if (mode = "exclude")
@@ -229,7 +234,7 @@ DetectHotkeyConflicts() {
                 hotkeyGroups[hkStr] := []
             hotkeyGroups[hkStr].Push(entry)
 
-            ; 收集修饰键路径使用情况（用于跨路径 B/C 冲突检测）
+            ; Collect modifier usage by path for cross-path B/C conflict detection
             if (modKey != "") {
                 scopeInfo := { configName: cfg["name"], mode: mode, procKey: procKey }
                 if (!mapping["PassthroughMod"]) {
@@ -245,7 +250,7 @@ DetectHotkeyConflicts() {
         }
     }
 
-    ; 按热键分组比较，只在同组内检测作用域重叠
+    ; Compare entries within each hotkey group only
     for _, group in hotkeyGroups {
         if (group.Length < 2)
             continue
@@ -270,7 +275,7 @@ DetectHotkeyConflicts() {
         }
     }
 
-    ; 检测跨路径 B/C 修饰键冲突（同一修饰键在拦截和透传模式下同时使用）
+    ; Detect cross-path B/C modifier conflicts (same modifier in intercept and passthrough modes)
     for modKey, bEntries in modUsageB {
         if !modUsageC.Has(modKey)
             continue
@@ -279,7 +284,7 @@ DetectHotkeyConflicts() {
             for _, cEntry in cEntries {
                 if ScopesOverlap(bEntry.mode, bEntry.procKey, cEntry.mode, cEntry.procKey) {
                     HotkeyConflicts.Push({
-                        hotkey: modKey " (拦截/透传冲突)",
+                        hotkey: modKey " (Path B/C conflict)",
                         config1: bEntry.configName,
                         idx1: 0,
                         config2: cEntry.configName,
@@ -291,8 +296,8 @@ DetectHotkeyConflicts() {
     }
 }
 
-; 将 include 进程列表规范化为可比较的键：
-; trim、去重、转小写、排序，然后以 | 连接
+; Normalize include process list into a comparable scope key:
+; trim, dedupe, lower-case, sort, then join with |
 CanonicalizeProcessScope(procStr) {
     procSet := Map()
     loop parse procStr, "|" {
@@ -308,7 +313,7 @@ CanonicalizeProcessScope(procStr) {
     for procName, _ in procSet
         procList.Push(procName)
 
-    ; 小数组场景下使用简单排序，避免引入额外依赖
+    ; Use a simple sort here to avoid extra dependencies for small lists
     i := 1
     while (i < procList.Length) {
         j := i + 1
@@ -332,7 +337,7 @@ CanonicalizeProcessScope(procStr) {
     return result
 }
 
-; 判断两个 include 作用域是否有交集
+; Whether two include scopes overlap
 IncludeScopesOverlap(procKey1, procKey2) {
     if (procKey1 = "" || procKey2 = "")
         return false
@@ -340,7 +345,7 @@ IncludeScopesOverlap(procKey1, procKey2) {
     list1 := StrSplit(procKey1, "|")
     list2 := StrSplit(procKey2, "|")
 
-    ; 先将较短列表建集合，减少查找次数
+    ; Build a set from the shorter list to reduce lookups
     if (list1.Length > list2.Length) {
         tmp := list1
         list1 := list2
@@ -358,8 +363,8 @@ IncludeScopesOverlap(procKey1, procKey2) {
     return false
 }
 
-; 判断 include 作用域与 exclude 作用域是否有交集
-; 条件：include 中至少有一个进程不在 exclude 列表里
+; Whether an include scope overlaps with an exclude scope
+; Condition: include contains at least one process not present in exclude
 IncludeVsExcludeOverlap(includeKey, excludeKey) {
     if (includeKey = "")
         return false
@@ -375,7 +380,7 @@ IncludeVsExcludeOverlap(includeKey, excludeKey) {
     return false
 }
 
-; 将 scopeKey（a.exe|b.exe）解析为集合 Map
+; Parse scopeKey (a.exe|b.exe) into a Map-based set
 ScopeKeyToSet(scopeKey) {
     procSet := Map()
     if (scopeKey = "")
@@ -389,60 +394,58 @@ ScopeKeyToSet(scopeKey) {
     return procSet
 }
 
-; 判断两个作用域是否存在重叠
-; 判定原则：两个作用域在任一进程下可能同时生效，则视为重叠
-; include/include：有交集才重叠
-; include/exclude：include 中存在未排除进程时重叠（global 与除空 include 外的任意作用域重叠）
+; Determine whether two scopes overlap
+; If there exists any process where both scopes could be active, they overlap
 ScopesOverlap(mode1, procKey1, mode2, procKey2) {
-    ; include/include：有交集才重叠
+    ; include/include: overlap only if the lists intersect
     if (mode1 = "include" && mode2 = "include")
         return IncludeScopesOverlap(procKey1, procKey2)
 
-    ; include/global：include 非空即与 global 重叠
+    ; include/global: any non-empty include overlaps with global
     if (mode1 = "include" && mode2 = "global")
         return (procKey1 != "")
     if (mode2 = "include" && mode1 = "global")
         return (procKey2 != "")
 
-    ; include/exclude：include 中存在未排除进程时重叠
+    ; include/exclude: overlap when include contains a non-excluded process
     if (mode1 = "include" && mode2 = "exclude")
         return IncludeVsExcludeOverlap(procKey1, procKey2)
     if (mode2 = "include" && mode1 = "exclude")
         return IncludeVsExcludeOverlap(procKey2, procKey1)
 
-    ; global 与 exclude/global 一律视为重叠
+    ; global overlaps with both exclude and global
     if (mode1 = "global" || mode2 = "global")
         return true
 
-    ; exclude/exclude：保守视为重叠
+    ; exclude/exclude: conservatively treat as overlapping
     return true
 }
 
-; 为单个配置注册所有热键
+; Register all hotkeys for a single config
 RegisterConfigHotkeys(cfg) {
     mappings := cfg["mappings"]
     if (mappings.Length = 0)
         return
 
-    ; 创建该配置的进程匹配闭包（供路径 A/B 使用；路径 C 将在回调中显式检查作用域）
+    ; Create process checker closure (used by Path A/B; Path C checks scope in callbacks)
     checker := MakeProcessChecker(cfg)
-    ; 保持引用防止 GC
+    ; Keep a live reference to prevent closure GC
     if (checker != "")
         AllProcessCheckers.Push(checker)
 
     useCustomHotIf := (checker != "")
 
-    ; 注册当前配置下的所有映射（路径 A/B 直接注册热键；路径 C 仅构建映射表）
+    ; Register all mappings under this config (A/B register hotkeys, C builds mapping table)
     for idx, mapping in mappings {
         RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
     }
 }
 
-; 注册单个映射：根据 modKey 和 passthroughMod 分发到路径 A/B/C
+; Register a single mapping by dispatching to Path A/B/C
 RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
     modKey := mapping["ModifierKey"]
 
-    ; 路径 A：无修饰键，直接注册热键
+    ; Path A: no modifier, direct hotkey registration
     if (modKey = "") {
         if (useCustomHotIf)
             HotIf(checker)
@@ -456,7 +459,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
         return
     }
 
-    ; 路径 B：拦截式组合热键（modKey & sourceKey），修饰键不透传
+    ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
     if (!mapping["PassthroughMod"]) {
         if (useCustomHotIf)
             HotIf(checker)
@@ -470,12 +473,12 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
         return
     }
 
-    ; 路径 C：状态化透传，统一由 Path C 引擎处理，不在注册层直接绑定目标回调
+    ; Path C: stateful passthrough, handled by Path C engine instead of direct target callback
     HotIf()
     RegisterPathCMapping(mapping, uniqueIdx, configName, checker)
 }
 
-; 路径 A：无修饰键，直接映射 sourceKey → targetKey
+; Path A: no modifier, directly map sourceKey -> targetKey
 RegisterPathA(mapping, hkInfo, uniqueIdx) {
     sourceKey := mapping["SourceKey"]
     targetKey := mapping["TargetKey"]
@@ -500,7 +503,7 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
     }
 }
 
-; 路径 B：拦截式组合热键（modKey & sourceKey），修饰键不透传
+; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
 RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     modKey := mapping["ModifierKey"]
     sourceKey := mapping["SourceKey"]
@@ -526,7 +529,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             HotkeyRegErrors.Push(comboKey)
     }
 
-    ; 注册修饰键恢复（同一 HotIf 条件下只注册一次）
+    ; Register modifier restore hotkey only once per HotIf scope
     modRegKey := (checker != "" ? configName : "") "|" modKey
     if !InterceptModKeys.Has(modRegKey) {
         try {
@@ -543,7 +546,7 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     }
 }
 
-; 路径 C：仅构建映射表，具体行为由 Path C 引擎统一处理
+; Path C: only build the mapping table; runtime behavior is handled by the Path C engine
 RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
     global PathCMappingByModSource, PathCModsUsed, PathCSourceKeysUsed
 
@@ -574,7 +577,7 @@ RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
 }
 
 ; ============================================================================
-; 路径 A/B 回调
+; Path A/B callbacks
 ; ============================================================================
 
 SendKeyCallback(targetKey, *) {
@@ -582,7 +585,7 @@ SendKeyCallback(targetKey, *) {
 }
 
 HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, sourceKey, *) {
-    ; 防御性清理：如果已有定时器运行（防止重入导致孤立定时器）
+    ; Defensive cleanup: stop existing timer to avoid orphaned timers on re-entry
     StopHoldTimer(idx)
 
     sendKey := KeyToSendFormat(targetKey)
@@ -611,12 +614,12 @@ StopHoldTimer(idx) {
 }
 
 RepeatTimerCallback(sendKey, sourceKey, idx, modKey := "", *) {
-    ; 路径 C：检查修饰键是否仍被按住
+    ; For Path C: ensure modifier is still held
     if (modKey != "" && !GetKeyState(modKey, "P")) {
         StopHoldTimer(idx)
         return
     }
-    ; 安全检查：如果源按键已松开（非滚轮键），自动停止定时器
+    ; Safety check: stop repeating if the source key has been released (non-wheel keys)
     baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
     if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
         StopHoldTimer(idx)
@@ -634,14 +637,14 @@ RestoreModKeyCallback(modKey, *) {
 }
 
 ; ============================================================================
-; 路径 C 引擎（显式状态机 + 统一事件路由）
+; Path C engine (explicit state machine + unified event routing)
 ; ============================================================================
 
-; 注册所有 Path C 所需的修饰键与源键热键（在所有配置处理完成后调用）
+; Register all Path C modifier/source hotkeys after config registration completes
 RegisterAllPathCHotkeys() {
     global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors
 
-    ; 修饰键：键盘修饰键/鼠标键通用，全部使用 "~modKey" / "~modKey Up" 透传物理事件
+    ; Modifiers: keyboard/mouse keys all use "~modKey" / "~modKey Up" to pass through events
     for modKey, _ in PathCModsUsed {
         if (modKey = "")
             continue
@@ -666,7 +669,7 @@ RegisterAllPathCHotkeys() {
         ActiveHotkeys.Push(modHkInfo)
     }
 
-    ; 源键：统一监听，实际触发逻辑在 Path C 引擎中判定
+    ; Source keys: listen centrally and let Path C decide what to trigger
     for sourceKey, _ in PathCSourceKeysUsed {
         if (sourceKey = "")
             continue
@@ -686,7 +689,7 @@ RegisterAllPathCHotkeys() {
             HotkeyRegErrors.Push(sourceHotkey)
         }
 
-        ; KeyUp（仅对支持 Up 热键的源键注册）
+        ; KeyUp: only for source keys that support Up hotkeys
         if (SupportsKeyUpHotkey(sourceHotkey)) {
             srcUpHotkey := sourceHotkey " Up"
             try {
@@ -703,7 +706,7 @@ RegisterAllPathCHotkeys() {
     HotIf()
 }
 
-; 获取或初始化指定修饰键的会话状态
+; Get or initialize the session state for a modifier key
 PathC_GetSession(modKey) {
     global PathCModSessions
     if !PathCModSessions.Has(modKey) {
@@ -717,7 +720,7 @@ PathC_GetSession(modKey) {
     return PathCModSessions[modKey]
 }
 
-; 结束指定修饰键的会话：停止所有重复触发并重置状态
+; End a modifier session: stop all repeats and reset state
 PathC_EndSession(modKey) {
     global PathCModSessions, HoldTimers
     if !PathCModSessions.Has(modKey)
@@ -725,7 +728,7 @@ PathC_EndSession(modKey) {
 
     session := PathCModSessions[modKey]
 
-    ; 停止所有与该修饰键关联的重复定时器
+    ; Stop all repeat timers associated with this modifier
     for mappingId, _ in session.repeatMappings {
         StopHoldTimer(mappingId)
     }
@@ -736,7 +739,7 @@ PathC_EndSession(modKey) {
     session.isGesture := false
 }
 
-; 判断映射在当前前台窗口下是否生效（基于配置生成的 checker 闭包）
+; Whether a mapping is active in the current foreground window (using checker closure)
 PathC_IsMappingActive(mapping) {
     if (mapping.HasOwnProp("checker") && mapping.checker != "") {
         try
@@ -747,14 +750,14 @@ PathC_IsMappingActive(mapping) {
     return true
 }
 
-; 启动路径 C 的长按重复触发
+; Start Path C long-press repeat for a mapping
 PathC_StartRepeat(mapping, modKey, sourceKey) {
     global HoldTimers
 
     idx := mapping.id
     sendKey := KeyToSendFormat(mapping.targetKey)
 
-    ; 防御性清理：如果已有定时器运行（防止重入导致孤立定时器）
+    ; Defensive cleanup: stop any existing timer to avoid orphan timers on re-entry
     StopHoldTimer(idx)
 
     Send(sendKey)
@@ -765,11 +768,11 @@ PathC_StartRepeat(mapping, modKey, sourceKey) {
     SetTimer(startFn, -mapping.repeatDelay)
 }
 
-; Path C 修饰键按下回调（统一入口）
+; Path C modifier-key down callback (shared entry point)
 PathC_ModDownCallback(modKey, *) {
     session := PathC_GetSession(modKey)
 
-    ; 若上一次会话尚未完结，先强制结束
+    ; Force-end any unfinished session before starting a new one
     if (session.state != "Idle")
         PathC_EndSession(modKey)
 
@@ -780,7 +783,7 @@ PathC_ModDownCallback(modKey, *) {
     session.repeatMappings := Map()
 }
 
-; Path C 修饰键松开回调（统一入口）
+; Path C modifier-key up callback (shared entry point)
 PathC_ModUpCallback(modKey, *) {
     session := PathC_GetSession(modKey)
     if (session.state = "Idle") {
@@ -789,8 +792,8 @@ PathC_ModUpCallback(modKey, *) {
 
     isGesture := session.isGesture
 
-    ; 对于 RButton，只在“已触发 Path C 组合”的手势会话中尝试关闭可能弹出的右键菜单；
-    ; 通过发送 Escape 实现，保留浏览器等工具对 RButton 手势的处理能力。
+    ; For RButton, only dismiss a possible context menu if this session actually triggered a Path C gesture.
+    ; Sending Escape keeps browser-style right-button gestures usable.
     if (modKey = "RButton" && isGesture) {
         SetTimer(PathC_DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
     }
@@ -802,13 +805,13 @@ PathC_DismissContextMenu(*) {
     Send("{Escape}")
 }
 
-; Path C 源键按下回调（统一入口）
+; Path C source-key down callback (shared entry point)
 PathC_SourceDownCallback(sourceKey, *) {
     global PathCMappingByModSource, PathCModSessions
 
     handled := false
 
-    ; 遍历所有当前活跃的修饰键会话
+    ; Iterate all currently active modifier sessions
     for modKey, session in PathCModSessions {
         if (session.state = "Idle")
             continue
@@ -823,7 +826,7 @@ PathC_SourceDownCallback(sourceKey, *) {
             if !PathC_IsMappingActive(mapping)
                 continue
 
-            ; 标记本次会话为手势会话
+            ; Mark this session as a gesture session
             session.state := "GestureActive"
             session.isGesture := true
 
@@ -847,12 +850,12 @@ PathC_SourceDownCallback(sourceKey, *) {
     }
 
     if (!handled) {
-        ; 未命中任何 Path C 映射，回退为原始按键
+        ; No Path C mapping matched, fall back to the raw source key
         Send(KeyToSendFormat(sourceKey))
     }
 }
 
-; Path C 源键松开回调（统一入口，仅对支持 Up 的源键生效）
+; Path C source-key up callback (shared entry point, only for keys that support Up)
 PathC_SourceUpCallback(sourceKey, *) {
     global PathCModSessions
 

@@ -1,16 +1,17 @@
 ; ============================================================================
-; AHKeyMap - 工具函数模块
-; 包含按键格式转换、进程选择器、开机自启等功能
+; AHKeyMap - Utility functions module
+; Contains key format conversion, process picker, and auto-start helpers
 ; ============================================================================
 
-; 声明跨文件使用的全局变量
+; Declare globals shared across modules
 global APP_NAME
 global REG_RUN_KEY
 global REG_VALUE_NAME
 global ProcessPickerOpen
+global ProcessPickerGui
 
 ; ============================================================================
-; 按键格式转换
+; Key format conversion
 ; ============================================================================
 
 KeyToDisplay(ahkKey) {
@@ -43,7 +44,7 @@ KeyToDisplay(ahkKey) {
     return display
 }
 
-; 预留用途：未来可在此统一处理键名显示格式（如大小写规范化等）
+; Reserved for future key display formatting tweaks (e.g. normalization)
 FormatKeyName(keyName) {
     return keyName
 }
@@ -74,11 +75,12 @@ KeyToSendFormat(ahkKey) {
 }
 
 ; ============================================================================
-; 进程选择器
+; Process picker
 ; ============================================================================
 
 CloseProcessPicker(procGui, *) {
     global ProcessPickerOpen := false
+    global ProcessPickerGui := ""
     procGui.Destroy()
 }
 
@@ -87,20 +89,22 @@ ShowProcessPicker(targetEdit, isMultiLine := false) {
         return
     global ProcessPickerOpen := true
 
-    procGui := Gui("+AlwaysOnTop +ToolWindow", "选择进程")
+    procGui := Gui("+AlwaysOnTop +ToolWindow", L("Utils.ProcessPicker.Title"))
     procGui.SetFont("s9", "Microsoft YaHei UI")
     procGui.OnEvent("Close", CloseProcessPicker.Bind(procGui))
 
-    procGui.AddText("x10 y10 w80 h23 +0x200", "手动输入:")
+    procGui.AddText("x10 y10 w80 h23 +0x200", L("Utils.ProcessPicker.ManualLabel"))
     manualEdit := procGui.AddEdit("x90 y10 w200 h23 vManualProc")
 
-    procGui.AddText("x10 y40 w280 h20", "或从下方列表选择（可多选）:")
+    procGui.AddText("x10 y40 w280 h20", L("Utils.ProcessPicker.ListHint"))
 
     procList := GetRunningProcesses()
     lb := procGui.AddListBox("x10 y65 w280 h200 vSelectedProc +Multi", procList)
 
-    procGui.AddButton("x60 y275 w80 h28", "确定").OnEvent("Click", OnProcessPickOK.Bind(procGui, targetEdit, lb, manualEdit, isMultiLine))
-    procGui.AddButton("x160 y275 w80 h28", "取消").OnEvent("Click", CloseProcessPicker.Bind(procGui))
+    procGui.AddButton("x60 y275 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnProcessPickOK.Bind(procGui, targetEdit, lb, manualEdit, isMultiLine))
+    procGui.AddButton("x160 y275 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", CloseProcessPicker.Bind(procGui))
+
+    global ProcessPickerGui := procGui
 
     procGui.Show("w300 h315")
 }
@@ -110,9 +114,9 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
     manual := Trim(manualEdit.Value)
     selected := []
 
-    ; 收集 ListBox 多选项
+    ; Collect ListBox multi-selection values
     try {
-        indices := lb.Value  ; 多选时返回 Array of indices
+        indices := lb.Value  ; returns Array of indices when multi-select is enabled
         if (indices is Array) {
             allItems := ControlGetItems(lb)
             for idx in indices {
@@ -120,7 +124,7 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
                     selected.Push(allItems[idx])
             }
         } else if (indices > 0) {
-            ; 单选情况
+            ; Single selection case
             selected.Push(lb.Text)
         }
     }
@@ -131,7 +135,7 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
     if (selected.Length > 0) {
         if (isMultiLine) {
             existing := targetEdit.Value
-            ; 收集已有进程名用于去重
+            ; Build a set of existing process names for de-duplication
             existingSet := Map()
             loop parse existing, "`n", "`r" {
                 t := Trim(A_LoopField)
@@ -148,7 +152,7 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
             }
             targetEdit.Value := existing
         } else {
-            ; 单行模式：用 | 连接
+            ; Single-line mode: join with |
             result := ""
             for i, proc in selected {
                 if (i > 1)
@@ -183,7 +187,7 @@ GetRunningProcesses() {
         }
     }
 
-    ; 收集进程名到换行分隔字符串后用内置 Sort 排序
+    ; Collect process names into newline-separated string and sort with built-in Sort()
     nameStr := ""
     for name, _ in processes
         nameStr .= name "`n"
@@ -201,7 +205,7 @@ GetRunningProcesses() {
 }
 
 ; ============================================================================
-; 开机自启（注册表）
+; Auto-start via registry
 ; ============================================================================
 
 IsAutoStartEnabled() {

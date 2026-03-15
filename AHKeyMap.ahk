@@ -1,38 +1,41 @@
 ; ============================================================================
-; AHKeyMap - AHKv2 按键映射工具
-; 支持多配置管理、多进程绑定、按键捕获、组合键映射、长按连续触发
-; 支持自定义修饰键（含鼠标按键）、滚轮映射、透传式组合键
-; 支持多配置同时生效、三态进程作用域（全局/仅指定/排除指定）
+; AHKeyMap - AHKv2 key & mouse remapping tool
+; Supports multiple configs, per-process scopes, key capture, combo mappings,
+; long-press repeat, custom modifiers (including mouse buttons), wheel remap,
+; passthrough combos, and three-state process scopes (global/include/exclude).
 ; ============================================================================
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
-;@Ahk2Exe-SetDescription AHKeyMap - 按键映射工具
-;@Ahk2Exe-SetVersion 2.6.1
+;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
+;@Ahk2Exe-SetVersion 2.7.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
 ; ============================================================================
-; 全局变量（所有模块共享）
+; Global variables (shared across all modules)
 ; ============================================================================
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.6.1"
+global APP_VERSION := "2.7.0"
 global SCRIPT_DIR := A_ScriptDir
 global CONFIG_DIR := SCRIPT_DIR "\configs"
 global STATE_FILE := CONFIG_DIR "\_state.ini"
 global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global REG_VALUE_NAME := "AHKeyMap"
 
-; 定时器与默认值常量
-global CAPTURE_START_DELAY := 200       ; 按键捕获启动延迟（ms）
-global CAPTURE_POLL_INTERVAL := 30      ; 按键捕获轮询间隔（ms）
-global CONTEXT_MENU_DISMISS_DELAY := 10 ; 右键菜单抑制延迟（ms）
-global DEFAULT_REPEAT_DELAY := 300      ; 长按连续触发默认延迟（ms）
-global DEFAULT_REPEAT_INTERVAL := 50    ; 长按连续触发默认间隔（ms）
+; Localization globals
+global CurrentLangCode := ""   ; e.g. "en-US" or "zh-CN"
 
-; 配置相关全局变量
+; Timer-related constants and default values
+global CAPTURE_START_DELAY := 200       ; key capture start delay (ms)
+global CAPTURE_POLL_INTERVAL := 30      ; key capture polling interval (ms)
+global CONTEXT_MENU_DISMISS_DELAY := 10 ; context menu dismissal delay (ms)
+global DEFAULT_REPEAT_DELAY := 300      ; default long-press delay (ms)
+global DEFAULT_REPEAT_INTERVAL := 50    ; default long-press interval (ms)
+
+; Config-related globals
 global AllConfigs := []
 global CurrentConfigName := ""
 global CurrentConfigFile := ""
@@ -44,7 +47,7 @@ global CurrentExcludeProcessList := []
 global CurrentConfigEnabled := true
 global Mappings := []
 
-; GUI 控件相关全局变量
+; GUI control references
 global MainGui := ""
 global ConfigDDL := ""
 global EnabledCB := ""
@@ -69,7 +72,7 @@ global EditIntervalEdit := ""
 global EditPassthroughCB := ""
 global EditingIndex := 0
 
-; 热键引擎相关全局变量
+; Hotkey engine globals
 global ActiveHotkeys := []
 global HoldTimers := Map()
 global InterceptModKeys := Map()
@@ -81,7 +84,7 @@ global PathCModSessions := Map()
 global PathCModsUsed := Map()
 global PathCSourceKeysUsed := Map()
 
-; 按键捕获相关全局变量
+; Key capture globals
 global IsCapturing := false
 global CaptureTarget := ""
 global CaptureGui := ""
@@ -91,14 +94,15 @@ global CaptureKeys := []
 global CaptureHadKeys := false
 global CaptureMouseKeys := Map()
 
-; 进程选择器相关全局变量
+; Process picker globals
 global ProcessPickerOpen := false
 
 ; ============================================================================
-; Include 模块
+; Include modules
 ; ============================================================================
 #Include "lib/Config.ahk"
 #Include "lib/Utils.ahk"
+#Include "lib/Localization.ahk"
 #Include "lib/HotkeyEngine.ahk"
 #Include "lib/KeyCapture.ahk"
 #Include "lib/GuiMain.ahk"
@@ -107,7 +111,7 @@ global ProcessPickerOpen := false
 
 
 ; ============================================================================
-; 托盘和窗口事件
+; Tray and window event handlers
 ; ============================================================================
 
 OnMainClose(thisGui) {
@@ -123,61 +127,143 @@ OnTrayExit(*) {
     ExitApp()
 }
 
-; 托盘菜单切换自启
+; Toggle auto-start from tray menu
 OnTrayAutoStartToggle(*) {
     if IsAutoStartEnabled() {
         DisableAutoStart()
-        A_TrayMenu.Uncheck("开机自启")
+        A_TrayMenu.Uncheck(L("Tray.AutoStart"))
     } else {
         EnableAutoStart()
-        A_TrayMenu.Check("开机自启")
+        A_TrayMenu.Check(L("Tray.AutoStart"))
     }
 }
 
 OnRunAsAdmin(*) {
     if A_IsAdmin {
-        MsgBox("当前已经是管理员模式", APP_NAME, "Icon!")
+        MsgBox(L("General.AlreadyAdmin"), APP_NAME, "Icon!")
         return
     }
     try {
         Run('*RunAs "' A_ScriptFullPath '"')
         ExitApp()
     } catch as e {
-        MsgBox("提权失败，可能被用户取消了`n" e.Message, APP_NAME, "Icon!")
+        MsgBox(Format(L("General.ElevateFailed"), e.Message), APP_NAME, "Icon!")
     }
 }
 
+OnTraySetLanguage(langCode) {
+    global CurrentLangCode
+    if (CurrentLangCode = langCode)
+        return
+    CurrentLangCode := langCode
+    ; Persist UILanguage into _state.ini
+    SaveEnabledStates()
+
+    ; Soft-reload main window in the new language
+    RebuildMainWindowForLanguageChange()
+}
+
 ; ============================================================================
-; 启动入口
+; Application entry point
 ; ============================================================================
 StartApp()
 
 StartApp() {
-    ; 确保配置目录存在
+    global CurrentLangCode
+
+    ; Ensure config directory exists
     if !DirExist(CONFIG_DIR)
         DirCreate(CONFIG_DIR)
 
-    ; 加载上次使用的配置（用于 GUI 显示）
+    ; Load last used config and UI language (for GUI initialization)
     lastConfig := ""
-    if FileExist(STATE_FILE)
+    if FileExist(STATE_FILE) {
         lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
+        langFromState := IniRead(STATE_FILE, "State", "UILanguage", "")
+        if (langFromState != "")
+            CurrentLangCode := langFromState
+    }
 
-    ; 构建主界面
+    ; On first run or when UILanguage is missing, default UI language to English
+    if (CurrentLangCode = "")
+        CurrentLangCode := "en-US"
+
+    ; Build main GUI
     BuildMainGui()
 
-    ; 加载所有配置到 AllConfigs 并注册已启用配置的热键
+    ; Load all configs into AllConfigs
     LoadAllConfigs()
 
-    ; 启动时同步启用状态，清理 _state.ini 中的历史残留键
+    ; At startup, sync enabled states and clean stale keys in _state.ini
     SaveEnabledStates()
 
-    ; 刷新配置下拉列表（仅 GUI 显示）
+    ; Refresh config dropdown (GUI only)
     RefreshConfigList(lastConfig)
 
-    ; 注册所有已启用配置的热键
+    ; Register hotkeys for all enabled configs
     ReloadAllHotkeys()
 
-    ; 显示主窗口
+    ; Show main window
     MainGui.Show("w720 h500")
+}
+
+; Rebuild main window for language switch (soft reload)
+RebuildMainWindowForLanguageChange() {
+    global MainGui
+    global CurrentConfigName
+    global EditGui
+    global CaptureGui
+    global ProcessPickerOpen
+    global ProcessPickerGui
+
+    ; Record current config name and window position/size
+    currentConfig := CurrentConfigName
+    x := 0, y := 0, w := 0, h := 0
+    try {
+        if (MainGui != "")
+            MainGui.GetPos(&x, &y, &w, &h)
+    }
+
+    ; Close any open child/modal windows
+    if (EditGui != "") {
+        try DestroyModalGui(EditGui)
+        EditGui := ""
+    }
+    if (CaptureGui != "") {
+        try CancelCapture()
+    }
+    if (ProcessPickerOpen && ProcessPickerGui != "") {
+        try CloseProcessPicker(ProcessPickerGui)
+        ProcessPickerGui := ""
+    }
+
+    ; Destroy old main window
+    if (MainGui != "") {
+        try MainGui.Opt("-Disabled")
+        try MainGui.Hide()
+        try MainGui.Destroy()
+        MainGui := ""
+    }
+
+    ; Rebuild main window and tray menu using current language
+    BuildMainGui()
+
+    ; Refresh config list and GUI state with the previously selected config
+    ; Clear CurrentConfigName so OnConfigSelect reloads config and mapping list
+    global CurrentConfigName
+    CurrentConfigName := ""
+    RefreshConfigList(currentConfig)
+
+    ; Refresh status bar with the new language
+    UpdateStatusText()
+
+    ; Restore previous window position/size, or use default dimensions
+    showOpts := ""
+    if (w > 0 && h > 0) {
+        showOpts := "x" x " y" y " w" w " h" h
+    } else {
+        showOpts := "w720 h500"
+    }
+    MainGui.Show(showOpts)
 }
 

@@ -1,44 +1,82 @@
 <p align="center">
-  <img src="icon.ico" alt="AHKeyMap 图标" width="96">
+  <img src="icon.ico" alt="AHKeyMap icon" width="96">
 </p>
 
 # AHKeyMap
 
-AHKeyMap 是一个基于 AutoHotkey v2 的鼠标/键盘按键映射工具，支持多配置并行生效与进程作用域控制，适合打造自己的快捷键工作流。
+**English** | [简体中文](README.zh-CN.md)
 
-## 适合谁用
+AHKeyMap is an AutoHotkey v2–based keyboard and mouse remapping tool. It supports multiple configs active at the same time and process-scoped hotkeys, making it easy to build your own shortcut workflows.
 
-- 想把鼠标按键或滚轮映射成键盘快捷键的人
-- 同一套快捷键需要在不同软件里有不同效果的人
-- 希望一键切换/启用多套配置的人
+## What It’s For
 
-## 快速开始
+AHKeyMap is useful if you:
 
-### 运行（脚本模式）
+- Want to map mouse buttons or wheel actions to keyboard shortcuts.
+- Need the same hotkey to behave differently in different applications.
+- Use multiple hotkey “profiles” and want to quickly enable/disable them.
 
-1. 安装 AutoHotkey v2
-2. 双击运行 `AHKeyMap.ahk`（或用 AutoHotkey64.exe 运行）
+Typical scenarios include:
 
-### 编译（生成 EXE）
+- Browser tab navigation with mouse gestures.
+- App-specific shortcuts for editors, design tools, or games.
+- Quickly toggling between work and gaming configs.
 
-双击 `build.bat`，脚本会自动寻找 Ahk2Exe 和 v2 基础文件并生成 `AHKeyMap.exe`。
+## Features
 
-## 基本操作
+- Multiple configs stored as simple `.ini` files in `configs/`.
+- Per-process scopes:
+  - Global: active in all apps.
+  - Include: active only in selected processes.
+  - Exclude: active everywhere except selected processes.
+- Three hotkey paths for modifier behavior:
+  - Path A: simple remap without a modifier key.
+  - Path B: intercepting combos (modifier blocks its original behavior).
+  - Path C: passthrough combos (modifier keeps its native behavior, good for gestures).
+- Long-press repeat with configurable delay and interval.
+- Conflict detection across configs with a clickable status bar summary.
+- Bilingual UI (English + Simplified Chinese), with language preference stored in `_state.ini`.
 
-- 新建配置：主界面点击“新建”，输入名称并设置作用域
-- 复制配置：选择已有配置，点击“复制”
-- 启用/禁用：勾选/取消“启用”复选框
-- 作用域模式：全局 / 仅指定进程 / 排除指定进程
+## Installation
 
-## 配置文件说明（INI）
+### Option 1: Script mode
 
-配置文件位于 `configs/`，每个配置一个 `.ini`。
+1. Install AutoHotkey v2 (64-bit).
+2. Clone or download this repository.
+3. Run `AHKeyMap.ahk` (double-click or run via `AutoHotkey64.exe AHKeyMap.ahk`).
 
-最小示例：
+### Option 2: Prebuilt EXE
+
+Download `AHKeyMap.exe` from the GitHub Releases page and run it directly.
+
+### Build your own EXE
+
+If you want to build the executable yourself:
+
+```bat
+build.bat
+```
+
+The script locates Ahk2Exe and the AutoHotkey v2 base and produces `AHKeyMap.exe`.
+
+## Quick Start
+
+1. Launch AHKeyMap (script or EXE).
+2. In the main window:
+   - Click “New” to create a config.
+   - Choose a name and set the process scope (global / include / exclude).
+3. Add a mapping:
+   - Click “Add mapping”.
+   - Capture a modifier (optional), source key, and target key.
+   - Optionally enable repeat and adjust delay/interval.
+4. Save the mapping and make sure the config is checked as “Enable”.
+5. Switch to your target application and test the new hotkey.
+
+For a concrete example, the following mapping in INI form (under `configs/`) makes the right mouse button + wheel up switch browser tabs backward:
 
 ```ini
 [Meta]
-Name=浏览器标签切换
+Name=Browser tab switch
 ProcessMode=include
 Process=msedge.exe|chrome.exe|firefox.exe
 ExcludeProcess=
@@ -53,88 +91,54 @@ RepeatInterval=50
 PassthroughMod=1
 ```
 
-字段说明：
+## Config Files Overview
 
-- `ProcessMode`：`global`（全局）/ `include`（仅指定）/ `exclude`（排除）
-- `Process` / `ExcludeProcess`：进程名用 `|` 分隔
-- `MappingN`：从 1 开始递增
+- All configs live in `configs/` as separate `.ini` files.
+- Each config has:
+  - `[Meta]` section: name and process scope.
+  - `[MappingN]` sections: individual hotkey mappings.
+- `_state.ini` stores:
+  - Last selected config name.
+  - Enabled/disabled flags per config.
+  - UI language (`UILanguage`), currently `en-US` or `zh-CN`.
 
-## 热键模式说明
+Basic fields:
 
-- 路径 A：不设置修饰键，直接把 `SourceKey` 映射到 `TargetKey`。
-- 路径 B：设置修饰键，且 `PassthroughMod=0`。这会把修饰键当成纯热键修饰键使用，原始行为会被拦截。
-- 路径 C：设置修饰键，且 `PassthroughMod=1`。这会保留修饰键本身的物理行为，适合浏览器右键手势、网页应用右键拖拽画布等依赖修饰键原始交互的场景。
+- `ProcessMode`: `global`, `include`, or `exclude`.
+- `Process` / `ExcludeProcess`: `|`-separated process names.
+- `MappingN`:
+  - `ModifierKey`, `SourceKey`, `TargetKey`
+  - `HoldRepeat` (0/1)
+  - `RepeatDelay`, `RepeatInterval` (ms)
+  - `PassthroughMod` (0 = intercept, 1 = passthrough)
 
-补充说明：
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a deeper description of the hotkey engine and config format.
 
-- 如果你用鼠标键当修饰键，并且希望保留它原本的拖拽/手势能力，优先选择路径 C。
-- 路径 C 对 `RButton` 的菜单抑制是“尽量而非保证”：触发过组合后，程序会在松开时尝试用 `Escape` 快速关闭菜单，但少数应用里仍可能有轻微闪烁。
+## Bilingual UI
 
-## 常见问题
+The AHKeyMap GUI currently supports:
 
-### 1. 热键没触发，应该先检查什么？
+- English (`en-US`)
+- Simplified Chinese (`zh-CN`)
 
-- 是否在脚本模式下运行了 AutoHotkey v2，或启动了最新版本的 `AHKeyMap.exe`。
-- 当前配置是否在下拉框中选中，并勾选了“启用”。
-- 作用域是否匹配：
-  - `ProcessMode=include` 时，前台进程名需要在 `Process` 列表里。
-  - `ProcessMode=exclude` 时，前台进程名不能在 `ExcludeProcess` 里。
-  - 纯 `global` 模式对所有进程生效。
-- 是否同时有其他键鼠工具/全局热键占用了相同组合（如别的 AHK 脚本、鼠标驱动、Steam、游戏内置快捷键等）。
-如果这些都正常，但仍然不触发，可以先简化成一个最小配置（一个按键 → 一个目标）来排查。
+On first run (when `_state.ini` has no `UILanguage`), the app defaults to English and then persists your choice in `_state.ini`:
 
-### 2. 修改配置之后，需要重启软件吗？
+- `UILanguage=en-US` or `UILanguage=zh-CN`
 
-不需要。  
-在界面里新建、复制、编辑配置并点击保存后，程序会自动：
+You can change the UI language from the tray menu:
 
-- 写回对应的 `configs/xxx.ini`；
-- 同步启用状态到 `_state.ini`；
-- 调用热键引擎重新加载所有已启用配置。
+- Right-click the tray icon → `Language` → choose `English` or `简体中文`.
+- You’ll be asked to restart AHKeyMap for the change to take effect.
 
-只有在你 **直接手改 INI 文件** 而没有通过 UI 时，才建议关掉再重启一次应用，让内存状态和磁盘配置重新对齐。
+The config file format itself is language-agnostic; only the UI strings are localized.
 
-### 3. `_state.ini` 可以手动删掉吗？
+## Documentation
 
-可以删，但通常没必要。  
-`_state.ini` 只保存「最后查看的配置名」和各配置的启用开关，不存真正的映射内容。删除后：
+- Chinese user guide: [README.zh-CN.md](README.zh-CN.md)
+- Architecture and implementation notes: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Agent/automation guidelines: [AGENTS.md](AGENTS.md)
+- Deferred bug backlog: [BUG_BACKLOG.md](BUG_BACKLOG.md)
 
-- 下次启动时会按实际的 `configs/*.ini` 自动重建启用状态；
-- UI 会从第一个可用配置开始展示。
+## License
 
-如果你发现 `_state.ini` 里有看起来“多余”的配置名，直接用应用删除对应配置或者重启一次，程序会自动清理。
-
-### 4. 多配置之间热键冲突会怎样表现？
-
-当多个启用的配置定义了相同热键时：
-
-- 引擎会按优先级处理：`include > exclude > global`；
-- 会扫描所有映射，检测作用域重叠的冲突（包括路径 B/C 使用同一修饰键的场景）；
-- 一旦发现冲突，主窗口底部状态栏会变成橙色，并显示“热键冲突/注册失败”的数量，点击即可查看详情列表。
-
-如果你只是想「先用再说」，出现冲突时优先排查 include 配置是否写得过宽（例如 include 写成了太多进程或和其它配置作用域完全重叠）。
-
-### 5. 路径 C（透传组合）有什么使用上的坑？
-
-- 路径 C 会尽可能保留修饰键（如 `RButton`）本身的行为，只在“修饰键 + 源键”组合出现时执行映射。
-- 为了兼顾浏览器等应用的右键菜单，`RButton` 的菜单抑制是“尽量而非绝对”：触发过 Path C 组合后，会尝试在松开时发送 `Escape` 来关闭弹出的菜单，但个别软件仍可能看到轻微闪烁或短暂菜单。
-- 长按类 Path C 映射（`HoldRepeat=1`）在松键、修饰键松开或焦点切换时会停止定时器；如果你遇到异常持续触发，可以先简化映射（去掉长按），确认问题是否只出现在特定软件上。
-
-如果你对 Path C 的行为有比较特殊的预期，建议先在单一应用里集中测试几组组合键，再逐步扩展到更多进程。
-
-### 6. 怎么备份或迁移配置到另一台机器？
-
-- 关闭 AHKeyMap（脚本或 EXE）。
-- 拷贝整个 `configs/` 目录到新机器同一位置（与 `AHKeyMap.ahk` / `AHKeyMap.exe` 同级）。
-- 在新机器上启动 AHKeyMap，即可自动加载所有配置和启用状态。
-
-如果你只想迁移部分配置，可以只复制对应的 `xxx.ini` 文件；启用状态会在新机器首次启动时自动初始化。
-
-## 文档
-
-- 给 AI/自动化代理用的开发规范：`AGENTS.md`
-- 技术架构说明：`ARCHITECTURE.md`
-
-## 许可证
-
-本项目基于 [MIT License](LICENSE) 开源。
+AHKeyMap is released under the [MIT License](LICENSE).

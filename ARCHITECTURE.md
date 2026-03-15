@@ -98,3 +98,21 @@
 - 编译命令等效于：
   `Ahk2Exe.exe /in "AHKeyMap.ahk" /out "AHKeyMap.exe" /icon "icon.ico" /base "...\AutoHotkey64.exe"`
 
+## 多语言支持 / Localization
+
+- UI 语言通过 `L(key, args*)` 辅助函数集中管理，实现在 `lib/Localization.ahk`：
+  - 使用 `CurrentLangCode` 选择语言包，目前支持 `en-US` 和 `zh-CN`。
+  - 文本键为扁平命名空间，例如：`GuiMain.ConfigLabel`、`GuiEvents.Error.ConfigExists`。
+  - `L("Key", arg1, arg2)` 会调用 `Format` 进行占位符替换（`{1}`、`{2}`）。
+- 语言包在内存中用 `Map()` 静态定义，如 `BuildEnPack()` / `BuildZhPack()`，后续如需外置 INI/JSON 只需改 `GetLangPack` 实现。
+- UI 语言首选项存储在 `_state.ini`：
+  - `[State]` 节下新增 `UILanguage` 键，值为 `en-US` 或 `zh-CN`。
+  - 启动时优先读取 `_state.ini` 中的 `UILanguage`；若缺失，则默认使用英文 (`en-US`) 作为 UI 语言，不再根据操作系统语言自动切换。
+- 托盘菜单提供语言切换入口：
+  - `Language` 子菜单下有 `English` / `简体中文`，点击后更新 `CurrentLangCode` 并调用 `SaveEnabledStates()` 持久化。
+  - 切换语言时不会重启整个脚本，而是会“软重启”主窗口：关闭当前主窗口和相关子窗口，再用新的 `CurrentLangCode` 重建主窗口和托盘菜单，保持配置与热键状态不变。
+- 代码与文档语言约定：
+  - 源代码中的标识符与注释统一使用英文，便于英语使用者维护；
+  - 用户界面文案通过本地化层维护中英双语；
+  - 开发者与 AI 之间的讨论可以使用中文，但最终落地到仓库的注释与技术文档应以英文为主。
+

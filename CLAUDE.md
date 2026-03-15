@@ -61,10 +61,15 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
 - **Only `AHKeyMap.ahk`** initializes globals (`:=`).
 - All modules declare with `global VarName` only — no re-initialization. Re-assigning in a module silently overwrites the main entry value at `#Include` time.
 
-### Commit conventions
+### Commit & release conventions
 - Only commit when the user explicitly asks.
-- Commit messages in Chinese: `v2.x.x: 功能描述` or `fix: 修复描述`.
-- After features or fixes, ask the user whether to update docs and create a commit.
+- Commit messages must be **English-first**, to keep Git history and GitHub Releases readable for a wider audience:
+  - Use subjects like `feat: add bilingual UI`, `fix: prevent stale state keys`, `docs: rewrite README in English`.
+  - If the user explicitly wants Chinese context, append it after the English subject instead of replacing it.
+- Release titles and notes should be written in English. When editing release bodies manually, keep the primary description in English; optional Chinese notes can follow if needed.
+ - The repository has a tag-driven release workflow (`.github/workflows/release.yml`) that runs on `push` tags matching `v*.*.*`. After bumping the version in `AHKeyMap.ahk` and committing, you should:
+   - Create an annotated tag `vX.Y.Z` that matches the `APP_VERSION` and `;@Ahk2Exe-SetVersion` values.
+   - Push the tag so that GitHub Actions can build and publish the release artifacts.
 
 ## Code Style
 
@@ -74,5 +79,5 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
 - **Data**: `Map()` for key/value, arrays for ordered lists.
 - **File writes**: always use atomic pattern (write `.tmp` then `FileMove`); see `SaveConfig` and `SaveEnabledStates`.
 - **HotIf**: always reset `HotIf()` after temporary use.
-- **GUI**: use `CreateModalGui`/`DestroyModalGui` helpers; UI strings are Chinese.
+- **GUI**: use `CreateModalGui`/`DestroyModalGui` helpers; UI strings must be localized via `L(key, args*)` with entries in `BuildEnPack()` and `BuildZhPack()`. English is the default UI language on first run; Simplified Chinese is available via the tray language selector.
 - **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`.

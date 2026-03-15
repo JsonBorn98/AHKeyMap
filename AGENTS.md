@@ -58,9 +58,19 @@ Rules: new features bump minor, bug fixes bump patch. Both values must match.
 
 ## Commit conventions
 - Only commit when user explicitly asks.
-- Messages in Chinese: `v2.2.1: 功能描述` or `fix: 修复描述`.
+- **Commit messages MUST be English-first**, so that GitHub releases and changelogs stay English:
+  - Prefer conventional subjects like `feat: add path C gesture state`, `fix: handle state file errors`, `docs: update README for bilingual UI`.
+  - Optional: you may append a short Chinese note after the English subject if the user asks, but the leading summary must be English.
 - After each feature or fix, proactively ask the user whether to update
   documentation and create a git commit.
+
+### GitHub releases and automation
+- GitHub Release notes are generated from commit messages, PR titles and labels — keep these **English-first** for consistency.
+- Tag format: `vX.Y.Z` (already enforced by CI); release titles remain English (e.g. `AHKeyMap v2.7.0`).
+- If you edit release bodies or changelog text manually (via `gh release` or GitHub UI), use English descriptions; Chinese notes can be added as a secondary explanation if needed.
+ - After the user approves a release-ready change (version bumped and committed), create and push a tag that matches the app version to trigger the `.github/workflows/release.yml` pipeline:
+   - Tag name must be `vX.Y.Z` and must match `APP_VERSION` in `AHKeyMap.ahk`.
+   - The tag should point at a commit that is reachable from `master` (as validated by the workflow).
 
 ## Include order and module boundaries
 `AHKeyMap.ahk` owns the `#Include` list. Current order:
@@ -82,6 +92,10 @@ Boundaries:
 ### Language and runtime
 - AutoHotkey v2.0+ only. No v1 syntax.
 - Simple imperative style consistent with existing modules.
+- **Source language:** Code, identifiers, comments and new documentation should default to English.
+- **Localization:** User-facing UI strings must go through the localization layer (`L(key, args*)`) and provide at least English and Simplified Chinese variants. Do not hardcode Chinese labels directly in code.
+  - Default UI language on a fresh install is English (`en-US`); do not infer startup language from OS locale.
+  - Chinese UI text lives in the `BuildZhPack()` language pack and Chinese-facing docs (for example `README.zh-CN.md`, `BUG_BACKLOG.md`), not as inline literals in .ahk source.
 
 ### Global variable pattern (CRITICAL)
 - All globals defined and initialized in `AHKeyMap.ahk` only.
@@ -119,7 +133,7 @@ Boundaries:
 ### GUI conventions
 - Modal dialogs: use `CreateModalGui` / `DestroyModalGui` helpers.
 - Keep event handlers short; extract logic into helper functions.
-- UI strings are Chinese; keep wording consistent with existing labels.
+- UI strings must be localized via `L(key, args*)` with entries in both `BuildEnPack()` and `BuildZhPack()`. English is the default UI language; Simplified Chinese is available via the tray language selector.
 - Update status via `UpdateStatusText()` after relevant state changes.
 - Status bar turns orange and becomes clickable when warnings exist
   (`HotkeyConflicts` or `HotkeyRegErrors` non-empty); click shows a MsgBox with details.

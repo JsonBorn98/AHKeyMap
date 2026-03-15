@@ -1,9 +1,9 @@
 ; ============================================================================
-; AHKeyMap - 配置管理模块
-; 负责加载、保存、管理配置文件
+; AHKeyMap - Config management module
+; Load, save and manage config INI files
 ; ============================================================================
 
-; 声明跨文件使用的全局变量
+; Globals shared across modules
 global APP_NAME
 global SCRIPT_DIR
 global CONFIG_DIR
@@ -31,10 +31,10 @@ global DEFAULT_REPEAT_DELAY
 global DEFAULT_REPEAT_INTERVAL
 
 ; ============================================================================
-; 配置管理函数
+; Config management functions
 ; ============================================================================
 
-; 获取所有配置文件名（不含扩展名）
+; Get all config file names (without extension)
 GetConfigList() {
     configs := []
     try {
@@ -47,7 +47,7 @@ GetConfigList() {
     return configs
 }
 
-; 加载所有配置到 AllConfigs（启动时调用一次）
+; Load all configs into AllConfigs (called at startup)
 LoadAllConfigs() {
     global AllConfigs := []
     configs := GetConfigList()
@@ -58,7 +58,7 @@ LoadAllConfigs() {
     }
 }
 
-; 从 INI 文件加载一个配置的完整数据，返回 Map 对象
+; Load full config data from INI file, return as Map
 LoadConfigData(configName) {
     configFile := CONFIG_DIR "\" configName ".ini"
     if !FileExist(configFile)
@@ -68,12 +68,12 @@ LoadConfigData(configName) {
     cfg["name"] := configName
     cfg["file"] := configFile
 
-    ; 读取 Meta - 进程模式（向后兼容）
+    ; Read Meta section - process mode (with backwards compatibility)
     processMode := IniRead(configFile, "Meta", "ProcessMode", "")
     process := IniRead(configFile, "Meta", "Process", "")
     excludeProcess := IniRead(configFile, "Meta", "ExcludeProcess", "")
 
-    ; 向后兼容：旧配置无 ProcessMode 时自动推断
+    ; Backwards compatibility: infer ProcessMode when missing
     if (processMode = "") {
         if (process != "")
             processMode := "include"
@@ -87,13 +87,13 @@ LoadConfigData(configName) {
     cfg["excludeProcess"] := excludeProcess
     cfg["excludeProcessList"] := ParseProcessList(excludeProcess)
 
-    ; 读取启用状态（从 _state.ini）
+    ; Read enabled state from _state.ini
     enabledVal := "1"
     if FileExist(STATE_FILE)
         enabledVal := IniRead(STATE_FILE, "EnabledConfigs", configName, "1")
     cfg["enabled"] := (enabledVal = "1")
 
-    ; 读取映射
+    ; Read mappings
     mappings := []
     idx := 1
     loop {
@@ -118,7 +118,7 @@ LoadConfigData(configName) {
     return cfg
 }
 
-; 在 AllConfigs 中查找指定名称的配置，返回索引（0=未找到）
+; Find config index by name in AllConfigs (0 = not found)
 FindConfigIndex(configName) {
     for i, cfg in AllConfigs {
         if (cfg["name"] = configName)
@@ -127,7 +127,7 @@ FindConfigIndex(configName) {
     return 0
 }
 
-; 同步当前 GUI 编辑状态到 AllConfigs
+; Sync current GUI editing state back into AllConfigs
 SyncCurrentToAllConfigs() {
     if (CurrentConfigName = "")
         return
@@ -144,7 +144,7 @@ SyncCurrentToAllConfigs() {
     cfg["mappings"] := Mappings
 }
 
-; 刷新配置下拉列表（仅 GUI 显示，不影响热键）
+; Refresh config dropdown (GUI only, does not affect hotkeys)
 RefreshConfigList(selectName := "") {
     configs := GetConfigList()
     items := []
@@ -172,7 +172,7 @@ RefreshConfigList(selectName := "") {
         global CurrentExcludeProcess := ""
         global CurrentExcludeProcessList := []
         global CurrentConfigEnabled := true
-        ProcessText.Value := "作用域: 无配置"
+        ProcessText.Value := L("Config.Scope.None")
         EnabledCB.Value := 0
         EnabledCB.Enabled := false
         global Mappings := []
@@ -181,7 +181,7 @@ RefreshConfigList(selectName := "") {
     UpdateStatusText()
 }
 
-; 解析进程字符串为数组
+; Parse process string into an array
 ParseProcessList(procStr) {
     result := []
     if (procStr = "")
@@ -194,25 +194,25 @@ ParseProcessList(procStr) {
     return result
 }
 
-; 格式化进程作用域为显示文本（接受已解析的数组）
+; Format process scope for display (using parsed arrays)
 FormatProcessDisplay(processMode, processList, excludeProcessList) {
     if (processMode = "include") {
         if (processList.Length = 0)
-            return "作用域: 全局"
+            return L("Config.Scope.Global")
         if (processList.Length = 1)
-            return "作用域: 仅 " processList[1]
-        return "作用域: 仅 " processList[1] " 等" processList.Length "个"
+            return L("Config.Scope.Include.Single", processList[1])
+        return L("Config.Scope.Include.Multi", processList[1], processList.Length)
     } else if (processMode = "exclude") {
         if (excludeProcessList.Length = 0)
-            return "作用域: 全局"
+            return L("Config.Scope.Global")
         if (excludeProcessList.Length = 1)
-            return "作用域: 排除 " excludeProcessList[1]
-        return "作用域: 排除 " excludeProcessList[1] " 等" excludeProcessList.Length "个"
+            return L("Config.Scope.Exclude.Single", excludeProcessList[1])
+        return L("Config.Scope.Exclude.Multi", excludeProcessList[1], excludeProcessList.Length)
     }
-    return "作用域: 全局"
+    return L("Config.Scope.Global")
 }
 
-; 更新状态栏文本
+; Update status bar text
 UpdateStatusText() {
     enabledCount := 0
     totalCount := AllConfigs.Length
@@ -221,18 +221,18 @@ UpdateStatusText() {
             enabledCount++
     }
 
-    statusStr := "已启用 " enabledCount "/" totalCount " 个配置"
+    statusStr := L("Config.Status.EnabledSummary", enabledCount, totalCount)
     hasWarning := false
     if (HotkeyConflicts.Length > 0) {
-        statusStr .= "  ⚠ " HotkeyConflicts.Length " 个热键冲突"
+        statusStr .= L("Config.Status.ConflictSuffix", HotkeyConflicts.Length)
         hasWarning := true
     }
     if (HotkeyRegErrors.Length > 0) {
-        statusStr .= "  ⚠ " HotkeyRegErrors.Length " 个热键注册失败"
+        statusStr .= L("Config.Status.RegErrorSuffix", HotkeyRegErrors.Length)
         hasWarning := true
     }
 
-    ; 有警告时：状态文字变橙色，并显示右侧详情入口
+    ; When warnings exist: make status text orange and show detail link
     global StatusHasWarning := hasWarning
     if (hasWarning) {
         StatusText.SetFont("cE07B00")
@@ -245,7 +245,7 @@ UpdateStatusText() {
     StatusText.Value := statusStr
 }
 
-; 加载指定配置到 GUI 编辑区域（不影响热键注册）
+; Load specified config into GUI (does not affect hotkey registration)
 LoadConfigToGui(configName) {
     idx := FindConfigIndex(configName)
     if (idx = 0)
@@ -276,18 +276,18 @@ LoadConfigToGui(configName) {
 
     RefreshMappingLV()
 
-    ; 保存最后查看的配置
+    ; Persist last viewed config name into _state.ini
     try IniWrite(configName, STATE_FILE, "State", "LastConfig")
 }
 
-; 保存当前配置到文件（原子写入：先写临时文件，成功后替换原文件）
+; Save current config to file (atomic write: temp file then replace)
 SaveConfig() {
     if (CurrentConfigName = "" || CurrentConfigFile = "")
         return
 
     tempFile := CurrentConfigFile ".tmp"
 
-    ; 第一步：将全部内容写入临时文件（按节批量写入）
+    ; Step 1: write all content into a temp file (section by section)
     try {
         if FileExist(tempFile)
             FileDelete(tempFile)
@@ -309,42 +309,46 @@ SaveConfig() {
             IniWrite(pairs, tempFile, "Mapping" idx)
         }
     } catch as e {
-        ; 写临时文件失败，原文件未动，清理残留 tmp
+        ; If writing temp file fails, original file stays intact; clean up tmp
         try FileDelete(tempFile)
-        MsgBox("保存配置失败：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
+        MsgBox(Format(L("Config.SaveError.WriteTemp"), e.Message, CurrentConfigFile), APP_NAME, "IconX")
         return
     }
 
-    ; 第二步：用临时文件覆盖原文件（FileMove 覆盖模式，避免先删后移的数据丢失风险）
+    ; Step 2: replace original file with temp file (FileMove overwrite mode)
     try {
         FileMove(tempFile, CurrentConfigFile, 1)
     } catch as e {
         try FileDelete(tempFile)
-        MsgBox("保存配置失败（替换阶段）：" e.Message "`n文件：" CurrentConfigFile, APP_NAME, "IconX")
+        MsgBox(Format(L("Config.SaveError.Replace"), e.Message, CurrentConfigFile), APP_NAME, "IconX")
         return
     }
 
-    ; 同步到 AllConfigs 并保存启用状态
+    ; Sync back into AllConfigs and save enabled states
     SyncCurrentToAllConfigs()
     SaveEnabledStates()
 }
 
-; 保存所有配置的启用状态到 _state.ini（原子写入）
+; Save enabled state for all configs to _state.ini (atomic write)
 SaveEnabledStates() {
     tempFile := STATE_FILE ".tmp"
     try {
-        ; 确保配置目录存在（防御性处理，避免极端情况下目录被删除）
+        ; Ensure config directory exists (defensive: in case it was removed)
         if !DirExist(CONFIG_DIR)
             DirCreate(CONFIG_DIR)
 
         if FileExist(tempFile)
             FileDelete(tempFile)
 
-        ; 保留 [State] 节，始终写出 LastConfig 键（即便为空也会创建文件）
+        ; Preserve [State] section and always write LastConfig / UILanguage
         lastConfig := ""
         if FileExist(STATE_FILE)
             lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
         IniWrite(lastConfig, tempFile, "State", "LastConfig")
+
+        ; Persist UI language
+        global CurrentLangCode
+        IniWrite(CurrentLangCode, tempFile, "State", "UILanguage")
 
         for _, cfg in AllConfigs
             IniWrite(cfg["enabled"] ? "1" : "0", tempFile, "EnabledConfigs", cfg["name"])
@@ -352,19 +356,19 @@ SaveEnabledStates() {
         FileMove(tempFile, STATE_FILE, 1)
     } catch as e {
         try FileDelete(tempFile)
-        MsgBox("保存启用状态失败：" e.Message, APP_NAME, "IconX")
+        MsgBox(Format(L("Config.SaveEnabledStatesError"), e.Message), APP_NAME, "IconX")
     }
 }
 
-; 刷新 ListView 显示
+; Refresh mapping ListView display
 RefreshMappingLV() {
     MappingLV.Delete()
     for idx, mapping in Mappings {
-        holdText := mapping["HoldRepeat"] ? "是" : "否"
+        holdText := mapping["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
         modDisplay := mapping["ModifierKey"] != "" ? KeyToDisplay(mapping["ModifierKey"]) : ""
         ptText := ""
         if (mapping["ModifierKey"] != "")
-            ptText := mapping["PassthroughMod"] ? "保留" : "拦截"
+            ptText := mapping["PassthroughMod"] ? L("Config.Mapping.ModMode.Pass") : L("Config.Mapping.ModMode.Block")
         delayText := mapping["HoldRepeat"] ? mapping["RepeatDelay"] : ""
         intervalText := mapping["HoldRepeat"] ? mapping["RepeatInterval"] : ""
         MappingLV.Add(""
@@ -377,7 +381,7 @@ RefreshMappingLV() {
             , delayText
             , intervalText)
     }
-    ; 自动调整列宽
+    ; Auto-adjust column widths
     loop 8
         MappingLV.ModifyCol(A_Index, "AutoHdr")
 }

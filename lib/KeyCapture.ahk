@@ -1,9 +1,9 @@
 ; ============================================================================
-; AHKeyMap - 按键捕获模块
-; 负责"松开时确认"机制的按键捕获功能
+; AHKeyMap - Key capture module
+; Implements the "confirm on release" key capture behavior
 ; ============================================================================
 
-; 声明跨文件使用的全局变量
+; Declare globals shared across modules
 global IsCapturing
 global CaptureTarget
 global CaptureGui
@@ -15,34 +15,34 @@ global CaptureMouseKeys
 global CAPTURE_START_DELAY
 global CAPTURE_POLL_INTERVAL
 
-; 编辑弹窗控件引用（从 MappingEditor 模块传入）
+; Editor dialog control references (injected from MappingEditor module)
 global EditModifierEdit
 global EditSourceEdit
 global EditTargetEdit
 global EditPassthroughCB
 
 ; ============================================================================
-; 按键捕获（松开时确认机制）
+; Key capture (confirm on release flow)
 ; ============================================================================
 
-; 所有需要轮询的键名列表
+; Build the full list of key names to poll
 global ALL_KEY_NAMES := BuildKeyNameList()
 
 BuildKeyNameList() {
     keys := []
-    ; 修饰键（左右分开检测，显示时归一化）
+    ; Modifier keys (detect left/right separately, normalize for display)
     for k in ["LCtrl", "RCtrl", "LShift", "RShift", "LAlt", "RAlt", "LWin", "RWin"]
         keys.Push(k)
-    ; 字母键
+    ; Letter keys
     loop 26
         keys.Push(Chr(64 + A_Index))  ; A-Z
-    ; 数字键
+    ; Number keys
     loop 10
         keys.Push(String(A_Index - 1))  ; 0-9
-    ; 功能键（仅 F1-F12，F13-F24 在多数键盘上不存在，GetKeyState 可能误报）
+    ; Function keys (F1-F12 only; F13-F24 rarely exist and GetKeyState may misreport)
     loop 12
         keys.Push("F" A_Index)  ; F1-F12
-    ; 特殊键
+    ; Special keys
     for k in ["Space", "Enter", "Tab", "Backspace", "Delete", "Insert",
               "Home", "End", "PgUp", "PgDn", "Up", "Down", "Left", "Right",
               "PrintScreen", "ScrollLock", "Pause", "CapsLock", "NumLock",
@@ -51,14 +51,14 @@ BuildKeyNameList() {
               "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9",
               "NumpadDot", "NumpadDiv", "NumpadMult", "NumpadAdd", "NumpadSub", "NumpadEnter"]
         keys.Push(k)
-    ; 符号键（使用 VK 名称，避免扫描码在不同键盘布局下误报）
+    ; Symbol keys (use VK names to avoid layout-specific scancode issues)
     for k in ["vkBA", "vkBB", "vkBC", "vkBD", "vkBE", "vkBF", "vkC0",
               "vkDB", "vkDC", "vkDD", "vkDE"]
         keys.Push(k)
     return keys
 }
 
-; VK 码到可读名称的映射
+; Map VK codes to readable names
 VkToDisplayName(vkName) {
     static vkMap := Map(
         "vkBA", ";",
@@ -78,7 +78,7 @@ VkToDisplayName(vkName) {
     return vkName
 }
 
-; 修饰键归一化映射
+; Helper predicates/mappers for modifiers
 IsModifierKey(keyName) {
     return (keyName = "LCtrl" || keyName = "RCtrl"
          || keyName = "LShift" || keyName = "RShift"
@@ -86,7 +86,7 @@ IsModifierKey(keyName) {
          || keyName = "LWin" || keyName = "RWin")
 }
 
-; 将修饰键名归一化为 AHK 前缀符号
+; Normalize modifier key names into AHK prefix symbols
 ModifierToPrefix(keyName) {
     if (keyName = "LCtrl" || keyName = "RCtrl")
         return "^"
@@ -99,7 +99,7 @@ ModifierToPrefix(keyName) {
     return ""
 }
 
-; 将修饰键名归一化为显示名
+; Normalize modifier key names into display names
 ModifierToDisplayName(keyName) {
     if (keyName = "LCtrl" || keyName = "RCtrl")
         return "Ctrl"
@@ -128,25 +128,25 @@ OnCaptureTarget(*) {
 }
 
 StartCapture() {
-    global IsCapturing := false  ; 先不启用，等延迟后再启用
+    global IsCapturing := false  ; start disabled, enable after delay
     global CaptureKeys := []
     global CaptureHadKeys := false
     global CaptureMouseKeys := Map()
 
-    ; 创建捕获提示窗口（带实时显示区域）
-    global CaptureGui := Gui("+AlwaysOnTop +ToolWindow -SysMenu", "按键捕获")
+    ; Create capture hint window with live display
+    global CaptureGui := Gui("+AlwaysOnTop +ToolWindow -SysMenu", L("KeyCapture.Title"))
     CaptureGui.SetFont("s11", "Microsoft YaHei UI")
-    global CaptureDisplayText := CaptureGui.AddText("x20 y10 w300 h30 Center", "请按下按键组合...")
+    global CaptureDisplayText := CaptureGui.AddText("x20 y10 w300 h30 Center", L("KeyCapture.MainPrompt"))
     CaptureGui.SetFont("s9", "Microsoft YaHei UI")
-    CaptureGui.AddText("x20 y45 w300 h20 Center cGray", "松开所有键后自动确认，按 Esc 取消")
+    CaptureGui.AddText("x20 y45 w300 h20 Center cGray", L("KeyCapture.SubPrompt"))
     CaptureGui.Show("w340 h75")
 
-    ; 延迟后再真正启用捕获，避免捕获到点击"捕获"按钮的鼠标事件
+    ; Delay capture start to avoid capturing the click on the "Capture" button itself
     SetTimer(StartCaptureDelayed, -CAPTURE_START_DELAY)
 }
 
 StartCaptureDelayed() {
-    ; 如果捕获窗口已被关闭（用户可能在延迟期间操作了），直接返回
+    ; If the capture window was closed during the delay, bail out
     if (CaptureGui = "")
         return
 
@@ -154,7 +154,7 @@ StartCaptureDelayed() {
     global CaptureHadKeys := false
     global CaptureMouseKeys := Map()
 
-    ; 注册鼠标消息钩子（滚轮 + 鼠标按键按下/松开）
+    ; Register mouse message hooks (wheel + mouse button down/up)
     OnMessage(0x020A, OnCaptureMouseWheel, 1)      ; WM_MOUSEWHEEL
     OnMessage(0x020B, OnCaptureMouseXDown, 1)       ; WM_XBUTTONDOWN
     OnMessage(0x020C, OnCaptureMouseXUp, 1)         ; WM_XBUTTONUP
@@ -165,18 +165,18 @@ StartCaptureDelayed() {
     OnMessage(0x0204, OnCaptureMouseRDown, 1)       ; WM_RBUTTONDOWN
     OnMessage(0x0205, OnCaptureMouseRUp, 1)         ; WM_RBUTTONUP
 
-    ; 启动轮询定时器
+    ; Start polling timer
     global CaptureTimer := CapturePolling
     SetTimer(CaptureTimer, CAPTURE_POLL_INTERVAL)
 }
 
 RemoveAllCaptureHooks() {
-    ; 停止轮询定时器
+    ; Stop polling timer
     if (CaptureTimer != "") {
         SetTimer(CaptureTimer, 0)
         global CaptureTimer := ""
     }
-    ; 移除所有鼠标消息钩子
+    ; Remove all mouse message hooks
     OnMessage(0x020A, OnCaptureMouseWheel, 0)
     OnMessage(0x020B, OnCaptureMouseXDown, 0)
     OnMessage(0x020C, OnCaptureMouseXUp, 0)
@@ -188,12 +188,12 @@ RemoveAllCaptureHooks() {
     OnMessage(0x0205, OnCaptureMouseRUp, 0)
 }
 
-; ---- 轮询函数：每 30ms 检查所有键的状态 ----
+; ---- Polling routine: check all key states every 30ms ----
 CapturePolling() {
     if !IsCapturing
         return
 
-    ; 捕获窗口失焦时自动取消
+    ; Auto-cancel capture when the window loses focus
     try {
         if (CaptureGui != "" && !WinActive("ahk_id " CaptureGui.Hwnd)) {
             CancelCapture()
@@ -201,11 +201,11 @@ CapturePolling() {
         }
     }
 
-    ; 收集当前按住的键
-    currentModifiers := Map()   ; 归一化后的修饰键 prefix -> display name
-    currentKeys := []           ; 非修饰键列表
+    ; Collect currently pressed keys
+    currentModifiers := Map()   ; normalized modifier prefix -> display name
+    currentKeys := []           ; non-modifier keys
 
-    ; 轮询键盘键
+    ; Poll keyboard keys
     for _, keyName in ALL_KEY_NAMES {
         if GetKeyState(keyName, "P") {
             if IsModifierKey(keyName) {
@@ -218,20 +218,19 @@ CapturePolling() {
         }
     }
 
-    ; 加入当前按住的鼠标键
+    ; Merge currently pressed mouse buttons
     for btnName, _ in CaptureMouseKeys {
         currentKeys.Push(btnName)
     }
 
-    ; 计算总按键数
+    ; Compute total number of pressed keys
     totalPressed := currentModifiers.Count + currentKeys.Length
 
     if (totalPressed > 0) {
         global CaptureHadKeys := true
 
-        ; 仅在按键数量 >= 历史峰值时更新显示和 CaptureKeys（保留最大组合）
+        ; Only update display and CaptureKeys when count >= historical max (keep largest combo)
         if (totalPressed >= CaptureKeys.Length) {
-            ; 构建显示文本
             displayParts := []
             for prefix in ["^", "+", "!", "#"] {
                 if currentModifiers.Has(prefix)
@@ -248,7 +247,7 @@ CapturePolling() {
             }
             try CaptureDisplayText.Value := displayStr
 
-            ; 更新 CaptureKeys
+            ; Update CaptureKeys
             global CaptureKeys := []
             for prefix in ["^", "+", "!", "#"] {
                 if currentModifiers.Has(prefix)
@@ -258,20 +257,20 @@ CapturePolling() {
                 CaptureKeys.Push(k)
         }
 
-        ; Escape 单独按下时取消捕获
+        ; Cancel capture when only Escape is pressed
         if (currentKeys.Length = 1 && currentKeys[1] = "Escape" && currentModifiers.Count = 0) {
             CancelCapture()
             return
         }
 
     } else if (CaptureHadKeys) {
-        ; 所有键都松开了，确认捕获
+        ; All keys released after having pressed some: confirm capture
         FinishCapture()
         return
     }
 }
 
-; ---- 完成捕获：生成 ahkKey 并应用 ----
+; ---- Finalize capture: build ahkKey and apply ----
 FinishCapture() {
     global IsCapturing := false
     SetTimer(StartCaptureDelayed, 0)
@@ -283,7 +282,7 @@ FinishCapture() {
         return
     }
 
-    ; 分离修饰键前缀和普通键
+    ; Split modifier prefixes and non-modifier keys
     modifiers := ""
     mainKeys := []
     for _, k in CaptureKeys {
@@ -294,21 +293,21 @@ FinishCapture() {
     }
 
     if (CaptureTarget = "modifier") {
-        ; modifier 捕获模式：取第一个非修饰键，如果没有则取修饰键本身
+        ; Modifier capture mode: take first non-modifier key, or the modifier itself
         if (mainKeys.Length > 0) {
             ahkKey := mainKeys[1]
         } else {
-            ; 只按了修饰键，还原为键名
+            ; Only modifiers were pressed, restore back to a key name
             ahkKey := ModifierPrefixToKeyName(modifiers)
         }
         displayKey := KeyToDisplay(ahkKey)
         ApplyCapturedKey(ahkKey, displayKey)
     } else {
-        ; source / target 捕获模式
+        ; Source / target capture mode
         if (mainKeys.Length > 0) {
             ahkKey := modifiers . mainKeys[1]
         } else {
-            ; 只按了修饰键
+            ; Only modifiers were pressed
             ahkKey := ModifierPrefixToKeyName(modifiers)
         }
         displayKey := KeyToDisplay(ahkKey)
@@ -319,9 +318,9 @@ FinishCapture() {
     global CaptureGui := ""
 }
 
-; 将修饰符前缀还原为键名（当只按了修饰键时使用）
+; Restore modifier prefixes back to a key name (used when only modifiers were pressed)
 ModifierPrefixToKeyName(prefixes) {
-    ; 取最后一个修饰键
+    ; Use the last modifier in the sequence
     if InStr(prefixes, "#")
         return "LWin"
     if InStr(prefixes, "!")
@@ -333,18 +332,18 @@ ModifierPrefixToKeyName(prefixes) {
     return ""
 }
 
-; ---- 取消捕获 ----
+; ---- Cancel capture ----
 CancelCapture() {
     global IsCapturing := false
-    SetTimer(StartCaptureDelayed, 0)  ; 取消可能还未触发的延迟定时器
+    SetTimer(StartCaptureDelayed, 0)  ; cancel any pending delayed timer
     RemoveAllCaptureHooks()
     try CaptureGui.Destroy()
     global CaptureGui := ""
 }
 
-; ---- 鼠标钩子回调 ----
+; ---- Mouse hook callbacks ----
 
-; 滚轮：无按住状态，直接结合当前修饰键即时确认
+; Mouse wheel: without held state, combine with current modifiers and confirm immediately
 OnCaptureMouseWheel(wParam, lParam, msg, hwnd) {
     if !IsCapturing
         return
@@ -354,8 +353,8 @@ OnCaptureMouseWheel(wParam, lParam, msg, hwnd) {
         delta := delta - 0x10000
     wheelName := delta > 0 ? "WheelUp" : "WheelDown"
 
-    ; 将滚轮加入当前按键列表，然后立即确认
-    ; 先收集当前按住的修饰键
+    ; Add wheel into current key list and confirm immediately
+    ; First collect currently pressed modifiers
     global CaptureHadKeys := true
     global CaptureKeys := []
     modifiers := GetCurrentModifiers()
@@ -369,7 +368,7 @@ OnCaptureMouseWheel(wParam, lParam, msg, hwnd) {
             break
         }
     }
-    ; 加入鼠标按键（如果有按住的）
+    ; Add pressed mouse buttons (if any)
     for btnName, _ in CaptureMouseKeys
         CaptureKeys.Push(btnName)
     CaptureKeys.Push(wheelName)
@@ -378,7 +377,7 @@ OnCaptureMouseWheel(wParam, lParam, msg, hwnd) {
     return 0
 }
 
-; 鼠标按键按下/松开：加入 CaptureMouseKeys，等轮询检测松开
+; Mouse button down/up: update CaptureMouseKeys and let polling detect release
 OnCaptureMouseXDown(wParam, lParam, msg, hwnd) {
     if !IsCapturing
         return
@@ -470,9 +469,9 @@ ApplyCapturedKey(ahkKey, displayKey) {
     }
 }
 
-; 这个函数需要从 MappingEditor 模块调用
+; This function must be called from the MappingEditor module
 UpdatePassthroughState() {
-    ; 保留修饰键原始功能 仅在修饰键非空时可用
+    ; "Keep modifier behavior" option is only meaningful when a modifier is set
     hasModifier := EditModifierEdit.ahkKey != ""
     EditPassthroughCB.Enabled := hasModifier
     if !hasModifier

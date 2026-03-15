@@ -1,9 +1,9 @@
 ; ============================================================================
-; AHKeyMap - GUI 事件处理模块
-; 负责配置管理和映射管理的所有 GUI 事件处理
+; AHKeyMap - GUI event handling module
+; Handles all GUI events for config and mapping management
 ; ============================================================================
 
-; 声明跨文件使用的全局变量
+; Declare globals shared across modules
 global APP_NAME
 global CONFIG_DIR
 global STATE_FILE
@@ -22,7 +22,7 @@ global MappingLV
 global EditingIndex
 
 ; ============================================================================
-; GUI 事件处理 - 配置管理
+; GUI event handlers - config management
 ; ============================================================================
 
 OnConfigSelect(ctrl, *) {
@@ -34,7 +34,7 @@ OnConfigSelect(ctrl, *) {
     }
 }
 
-; 启用/禁用复选框
+; Enable/disable the current config via checkbox
 OnToggleEnabled(ctrl, *) {
     if (CurrentConfigName = "")
         return
@@ -46,32 +46,32 @@ OnToggleEnabled(ctrl, *) {
 }
 
 OnNewConfig(*) {
-    newGui := CreateModalGui("新建配置")
+    newGui := CreateModalGui(L("GuiEvents.NewConfig.Title"))
     newGui.SetFont("s9", "Microsoft YaHei UI")
 
-    newGui.AddText("x10 y10 w80 h23 +0x200", "配置名称:")
+    newGui.AddText("x10 y10 w80 h23 +0x200", L("GuiEvents.NewConfig.NameLabel"))
     nameEdit := newGui.AddEdit("x90 y10 w250 h23 vConfigName")
 
-    ; 三态进程模式
-    newGui.AddGroupBox("x10 y42 w330 h175", "作用域")
-    globalRadio := newGui.AddRadio("x20 y62 w310 h20 vProcessMode Checked", "全局生效")
-    includeRadio := newGui.AddRadio("x20 y85 w310 h20", "仅指定进程生效")
-    excludeRadio := newGui.AddRadio("x20 y108 w310 h20", "排除指定进程")
+    ; Three-state process mode radios
+    newGui.AddGroupBox("x10 y42 w330 h175", L("GuiEvents.NewConfig.ScopeGroup"))
+    globalRadio := newGui.AddRadio("x20 y62 w310 h20 vProcessMode Checked", L("GuiEvents.NewConfig.ScopeGlobal"))
+    includeRadio := newGui.AddRadio("x20 y85 w310 h20", L("GuiEvents.NewConfig.ScopeInclude"))
+    excludeRadio := newGui.AddRadio("x20 y108 w310 h20", L("GuiEvents.NewConfig.ScopeExclude"))
 
-    newGui.AddText("x20 y133 w60 h23 +0x200", "进程列表:")
+    newGui.AddText("x20 y133 w60 h23 +0x200", L("GuiEvents.NewConfig.ProcessListLabel"))
     procEdit := newGui.AddEdit("x85 y133 w195 h70 vProcName Multi")
     procEdit.Enabled := false
-    procPickBtn := newGui.AddButton("x285 y133 w45 h25", "选择")
+    procPickBtn := newGui.AddButton("x285 y133 w45 h25", L("GuiEvents.Common.ProcessPickButton"))
     procPickBtn.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
     procPickBtn.Enabled := false
 
-    ; 单选按钮切换时启用/禁用进程编辑
+    ; Enable/disable process editors when radio buttons change
     globalRadio.OnEvent("Click", (*) => (procEdit.Enabled := false, procPickBtn.Enabled := false))
     includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
     excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
 
-    newGui.AddButton("x100 y225 w80 h28", "确定").OnEvent("Click", OnNewConfigOK.Bind(newGui))
-    newGui.AddButton("x190 y225 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(newGui))
+    newGui.AddButton("x100 y225 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnNewConfigOK.Bind(newGui))
+    newGui.AddButton("x190 y225 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", (*) => DestroyModalGui(newGui))
 
     newGui.Show("w350 h265")
 }
@@ -80,22 +80,22 @@ OnNewConfigOK(newGui, *) {
     configName := Trim(newGui["ConfigName"].Value)
 
     if (configName = "") {
-        MsgBox("请输入配置名称", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NameRequired"), APP_NAME, "Icon!")
         return
     }
 
     if RegExMatch(configName, '[\\/:*?"<>|=\[\]]') {
-        MsgBox("配置名称不能包含以下字符：\ / : * ? `" < > | = [ ]", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NameInvalidChars"), APP_NAME, "Icon!")
         return
     }
 
     configFile := CONFIG_DIR "\" configName ".ini"
     if FileExist(configFile) {
-        MsgBox("配置 '" configName "' 已存在", APP_NAME, "Icon!")
+        MsgBox(Format(L("GuiEvents.Error.ConfigExists"), configName), APP_NAME, "Icon!")
         return
     }
 
-    ; 确定进程模式与进程列表
+    ; Determine process mode and process list
     submitted := newGui.Submit(false)
     processMode := RadioToProcessMode(submitted.ProcessMode)
     procStr := ProcTextToStr(newGui["ProcName"].Value)
@@ -113,33 +113,33 @@ OnNewConfigOK(newGui, *) {
         IniWrite("", configFile, "Meta", "ExcludeProcess")
     }
 
-    ; 默认启用新配置
+    ; Enable new config by default
     IniWrite("1", STATE_FILE, "EnabledConfigs", configName)
 
     DestroyModalGui(newGui)
 
-    ; 重新加载所有配置
+    ; Reload all configs
     LoadAllConfigs()
     RefreshConfigList(configName)
     ReloadAllHotkeys()
 }
 
-; 复制配置
+; Copy config
 OnCopyConfig(*) {
     if (CurrentConfigName = "") {
-        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
 
-    copyGui := CreateModalGui("复制配置")
+    copyGui := CreateModalGui(L("GuiEvents.CopyConfig.Title"))
     copyGui.SetFont("s9", "Microsoft YaHei UI")
 
-    copyGui.AddText("x10 y10 w80 h23 +0x200", "新名称:")
+    copyGui.AddText("x10 y10 w80 h23 +0x200", L("GuiEvents.CopyConfig.NewNameLabel"))
     defaultName := CurrentConfigName "_copy"
     nameEdit := copyGui.AddEdit("x90 y10 w250 h23 vNewName", defaultName)
 
-    copyGui.AddButton("x110 y48 w80 h28", "确定").OnEvent("Click", OnCopyConfigOK.Bind(copyGui))
-    copyGui.AddButton("x200 y48 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(copyGui))
+    copyGui.AddButton("x110 y48 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnCopyConfigOK.Bind(copyGui))
+    copyGui.AddButton("x200 y48 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", (*) => DestroyModalGui(copyGui))
 
     copyGui.Show("w350 h88")
 }
@@ -148,34 +148,34 @@ OnCopyConfigOK(copyGui, *) {
     newName := Trim(copyGui["NewName"].Value)
 
     if (newName = "") {
-        MsgBox("请输入配置名称", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NameRequired"), APP_NAME, "Icon!")
         return
     }
 
     if RegExMatch(newName, '[\\/:*?"<>|=\[\]]') {
-        MsgBox("配置名称不能包含以下字符：\ / : * ? `" < > | = [ ]", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NameInvalidChars"), APP_NAME, "Icon!")
         return
     }
 
     newFile := CONFIG_DIR "\" newName ".ini"
     if FileExist(newFile) {
-        MsgBox("配置 '" newName "' 已存在", APP_NAME, "Icon!")
+        MsgBox(Format(L("GuiEvents.Error.ConfigExists"), newName), APP_NAME, "Icon!")
         return
     }
 
-    ; 复制当前配置文件
+    ; Copy current config file
     if FileExist(CurrentConfigFile)
         FileCopy(CurrentConfigFile, newFile)
 
-    ; 修改副本中的 Name
+    ; Update Name field inside copied config
     IniWrite(newName, newFile, "Meta", "Name")
 
-    ; 默认启用
+    ; Enable new config by default
     IniWrite("1", STATE_FILE, "EnabledConfigs", newName)
 
     DestroyModalGui(copyGui)
 
-    ; 重新加载所有配置
+    ; Reload all configs
     LoadAllConfigs()
     RefreshConfigList(newName)
     ReloadAllHotkeys()
@@ -183,16 +183,16 @@ OnCopyConfigOK(copyGui, *) {
 
 OnDeleteConfig(*) {
     if (CurrentConfigName = "") {
-        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
 
-    result := MsgBox("确定要删除配置 '" CurrentConfigName "' 吗？", APP_NAME, "YesNo Icon?")
+    result := MsgBox(Format(L("GuiEvents.Confirm.DeleteConfig"), CurrentConfigName), APP_NAME, "YesNo Icon?")
     if (result = "Yes") {
         if FileExist(CurrentConfigFile)
             FileDelete(CurrentConfigFile)
 
-        ; 从 AllConfigs 中移除
+        ; Remove from AllConfigs
         idx := FindConfigIndex(CurrentConfigName)
         if (idx > 0)
             AllConfigs.RemoveAt(idx)
@@ -208,20 +208,20 @@ OnDeleteConfig(*) {
 
 OnChangeProcess(*) {
     if (CurrentConfigName = "") {
-        MsgBox("没有选中的配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
 
-    changeGui := CreateModalGui("修改作用域")
+    changeGui := CreateModalGui(L("GuiEvents.ChangeScope.Title"))
     changeGui.SetFont("s9", "Microsoft YaHei UI")
 
-    ; 三态单选
-    changeGui.AddGroupBox("x10 y5 w370 h210", "作用域模式")
-    globalRadio := changeGui.AddRadio("x20 y25 w350 h20 vProcessMode", "全局生效")
-    includeRadio := changeGui.AddRadio("x20 y48 w350 h20", "仅指定进程生效")
-    excludeRadio := changeGui.AddRadio("x20 y71 w350 h20", "排除指定进程")
+    ; Three-state radio group
+    changeGui.AddGroupBox("x10 y5 w370 h210", L("GuiEvents.ChangeScope.ModeGroup"))
+    globalRadio := changeGui.AddRadio("x20 y25 w350 h20 vProcessMode", L("GuiEvents.NewConfig.ScopeGlobal"))
+    includeRadio := changeGui.AddRadio("x20 y48 w350 h20", L("GuiEvents.NewConfig.ScopeInclude"))
+    excludeRadio := changeGui.AddRadio("x20 y71 w350 h20", L("GuiEvents.NewConfig.ScopeExclude"))
 
-    ; 根据当前模式选中
+    ; Select radio based on current mode
     if (CurrentProcessMode = "include")
         includeRadio.Value := 1
     else if (CurrentProcessMode = "exclude")
@@ -229,10 +229,10 @@ OnChangeProcess(*) {
     else
         globalRadio.Value := 1
 
-    changeGui.AddText("x20 y98 w60 h23 +0x200", "进程列表:")
-    changeGui.AddText("x20 y120 w350 h16 cGray", "（每行一个进程名）")
+    changeGui.AddText("x20 y98 w60 h23 +0x200", L("GuiEvents.NewConfig.ProcessListLabel"))
+    changeGui.AddText("x20 y120 w350 h16 cGray", L("GuiEvents.NewConfig.ProcessListHint"))
 
-    ; 根据模式显示对应的进程列表
+    ; Populate process list text based on current mode
     displayProc := ""
     if (CurrentProcessMode = "include")
         displayProc := StrReplace(CurrentProcess, "|", "`n")
@@ -240,10 +240,10 @@ OnChangeProcess(*) {
         displayProc := StrReplace(CurrentExcludeProcess, "|", "`n")
 
     procEdit := changeGui.AddEdit("x20 y138 w290 h65 vProcName Multi", displayProc)
-    procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25", "选择")
+    procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25", L("GuiEvents.Common.ProcessPickButton"))
     procPickBtn2.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
 
-    ; 全局模式下禁用进程编辑
+    ; Disable process editing when in global mode
     isGlobal := (CurrentProcessMode = "global")
     procEdit.Enabled := !isGlobal
     procPickBtn2.Enabled := !isGlobal
@@ -252,14 +252,14 @@ OnChangeProcess(*) {
     includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
     excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
 
-    changeGui.AddButton("x100 y222 w80 h28", "确定").OnEvent("Click", OnChangeProcessOK.Bind(changeGui))
-    changeGui.AddButton("x200 y222 w80 h28", "取消").OnEvent("Click", (*) => DestroyModalGui(changeGui))
+    changeGui.AddButton("x100 y222 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnChangeProcessOK.Bind(changeGui))
+    changeGui.AddButton("x200 y222 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", (*) => DestroyModalGui(changeGui))
 
     changeGui.Show("w390 h260")
 }
 
 OnChangeProcessOK(changeGui, *) {
-    ; 确定进程模式与进程列表
+    ; Determine process mode and process list
     submitted := changeGui.Submit(false)
     processMode := RadioToProcessMode(submitted.ProcessMode)
     procStr := ProcTextToStr(changeGui["ProcName"].Value)
@@ -290,12 +290,12 @@ OnChangeProcessOK(changeGui, *) {
 }
 
 ; ============================================================================
-; GUI 事件处理 - 映射管理
+; GUI event handlers - mapping management
 ; ============================================================================
 
 OnAddMapping(*) {
     if (CurrentConfigName = "") {
-        MsgBox("请先选择或新建一个配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
     global EditingIndex := 0
@@ -304,7 +304,7 @@ OnAddMapping(*) {
 
 OnEditMapping(ctrl, rowNum := 0, *) {
     if (CurrentConfigName = "") {
-        MsgBox("请先选择或新建一个配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
 
@@ -315,7 +315,7 @@ OnEditMapping(ctrl, rowNum := 0, *) {
     } else {
         rowNum := MappingLV.GetNext(0, "F")
         if (rowNum = 0) {
-            MsgBox("请先选中一个映射", APP_NAME, "Icon!")
+            MsgBox(L("GuiEvents.Error.SelectMappingFirst"), APP_NAME, "Icon!")
             return
         }
         global EditingIndex := rowNum
@@ -325,13 +325,13 @@ OnEditMapping(ctrl, rowNum := 0, *) {
 
 OnCopyMapping(*) {
     if (CurrentConfigName = "") {
-        MsgBox("请先选择或新建一个配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
 
     rowNum := MappingLV.GetNext(0, "F")
     if (rowNum = 0) {
-        MsgBox("请先选中一个映射", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectMappingFirst"), APP_NAME, "Icon!")
         return
     }
 
@@ -353,17 +353,17 @@ OnCopyMapping(*) {
 
 OnDeleteMapping(*) {
     if (CurrentConfigName = "") {
-        MsgBox("请先选择或新建一个配置", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
 
     rowNum := MappingLV.GetNext(0, "F")
     if (rowNum = 0) {
-        MsgBox("请先选中一个映射", APP_NAME, "Icon!")
+        MsgBox(L("GuiEvents.Error.SelectMappingFirst"), APP_NAME, "Icon!")
         return
     }
 
-    result := MsgBox("确定要删除这个映射吗？", APP_NAME, "YesNo Icon?")
+    result := MsgBox(L("GuiEvents.Confirm.DeleteMapping"), APP_NAME, "YesNo Icon?")
     if (result = "Yes") {
         Mappings.RemoveAt(rowNum)
         SaveConfig()
@@ -373,10 +373,10 @@ OnDeleteMapping(*) {
 }
 
 ; ============================================================================
-; 私有辅助函数
+; Private helper functions
 ; ============================================================================
 
-; 将三态单选按钮值（1=全局, 2=仅指定, 3=排除）转换为进程模式字符串
+; Map three-state radio value (1=global, 2=include, 3=exclude) to process mode string
 RadioToProcessMode(radioVal) {
     if (radioVal = 2)
         return "include"
@@ -385,7 +385,7 @@ RadioToProcessMode(radioVal) {
     return "global"
 }
 
-; 将多行进程文本（每行一个进程名）解析为 | 分隔的字符串
+; Convert multi-line process text (one per line) into a | separated string
 ProcTextToStr(rawText) {
     procStr := ""
     loop parse rawText, "`n", "`r" {
