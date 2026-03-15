@@ -126,7 +126,7 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 文件: `lib/HotkeyEngine.ahk:559`, `lib/HotkeyEngine.ahk:801`
 - 影响范围: 透传模式、修饰键原始功能保留的一致性
 - 复现条件: 配置路径 C 映射后，在未按住目标 `modKey` 的情况下，按住其他修饰键再触发 `sourceKey`
-- 当前观察: 路径 C 已改为“仅在目标 `modKey` 按下时临时启用 `sourceKey` 热键”。未命中组合时，`sourceKey` 默认不再被路径 C 接管，因此可保留更完整的原始输入语义；命中组合时仍按路径 C 规则触发目标映射。
+- 当前观察: 路径 C 现已改为“统一事件路由 + 修饰键会话”模型。`sourceKey` 始终由 Path C 路由层接管，但只有在存在活跃的目标修饰键会话且命中对应映射时才转发为 `targetKey`；否则会立即回退发送原始 `sourceKey`，从而避免无关修饰键场景下的语义损坏。
 - 修复方向: 无需继续处理；如果后续要支持更复杂的跨作用域按键切换，可另开优化项讨论。
 - 验证方式: 已手工验证裸按、按住无关修饰键、按住目标修饰键，以及 `RButton` 手势场景。
 ---
@@ -236,3 +236,16 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - **文件**: `lib/Config.ahk:146-180`
 - **描述**: `RefreshConfigList` 通过 `GetConfigList()` 扫描 `configs/*.ini` 获取配置列表，而不是直接使用已加载的 `AllConfigs`。这导致每次刷新都有一次文件系统 IO。由于配置目录中文件数量通常很少，影响微乎其微。
 - **修复方案**: 可选：从 `AllConfigs` 提取名称列表而非重新扫描文件系统。优先级极低。
+
+---
+
+## BUG-015: 路径 C 使用 RButton + 滚轮时右键菜单行为不稳定
+- 状态: 已修复
+- 严重度: Medium
+- 置信度: 高
+- 文件: `lib/HotkeyEngine.ahk`
+- 影响范围: 使用 `RButton` 作为路径 C 修饰键的鼠标手势（特别是按住右键 + 滚轮）
+- 复现条件: 配置路径 C 映射（`modKey=RButton`，`sourceKey=Wheel*`），按住右键滚动滚轮后松开右键
+- 当前观察: Path C 已重构为“显式修饰键会话 + 统一事件路由”模型：RButton 会话在本次按压期间一旦触发任何 Path C 映射，就被标记为手势会话（`isGesture = true`）。此时引擎不会拦截或模拟 RButton 物理事件，而是在松开后短延迟发送 Escape，尽量关闭可能出现的右键菜单；若本次按压未触发 Path C 映射，则整个右键过程保持原生透传。
+- 修复方向: 通过中央映射表 `PathCMappingByModSource` 与 `PathCModSessions` 会话状态机统一处理所有 Path C 映射，并把 Path C 的职责明确收敛为“优先保留修饰键原始交互”。对 RButton 来说，浏览器右键手势、网页应用右键拖拽画布等交互始终依赖真实的按下/移动/松开序列；菜单抑制仅作为手势会话结束时的 Escape 兜底，而非绝对保证。
+- 验证方式: 使用 2.5.0 及以上版本执行以下测试：启用 RButton + Wheel* Path C 映射后，浏览器右键手势与 Web 应用右键拖拽画布仍可正常工作；按住右键 + 滚轮（含多次滚动与快速滚动）后松开右键时，菜单应在常见应用中被快速关闭且不影响手势链路；开启 `HoldRepeat` 时，RButton 松开应稳定停止 repeat。少数应用仍可能出现轻微菜单闪烁，这属于 Path C 透传优先模型下的已知取舍。

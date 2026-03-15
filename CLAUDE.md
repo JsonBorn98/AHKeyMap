@@ -45,7 +45,7 @@ Config.ahk → Utils.ahk → HotkeyEngine.ahk → KeyCapture.ahk
 **Hotkey engine paths** (`HotkeyEngine.ahk`):
 - **Path A** (`RegisterPathA`): no modifier → direct `Hotkey(source, callback)`
 - **Path B** (`RegisterPathB`): modifier + `PassthroughMod=0` → `modKey & sourceKey` (intercepts modifier)
-- **Path C** (`RegisterPathC`): modifier + `PassthroughMod=1` → `~modKey` + state tracking (preserves modifier)
+- **Path C** (`RegisterPathCMapping` + Path C engine): modifier + `PassthroughMod=1` → unified routing with `~modKey` passthrough and per-mod session state
 
 **Process scope priority:** `include > exclude > global`
 
