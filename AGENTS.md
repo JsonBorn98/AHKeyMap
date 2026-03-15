@@ -23,7 +23,7 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 - `scripts/test.ps1` — PowerShell test runner, suite discovery, one-process-per-test execution, log/screenshot/result collection
 - `configs/` — runtime INI files (gitignored)
 - `assets/icon.ico` — application icon used by README and packaged builds
-- `build.bat` — thin wrapper around `scripts/build.ps1`
+- `build.bat` — interactive Windows entrypoint for local users; offers safe / full / quick build modes before delegating to `scripts/build.ps1`
 - `.gitignore` — ignores `configs/`, `dist/`, `test-results/`, `*.bak`, `*.tmp`, `.claude/`, `.cursor/`
 
 ## Build / run / test
@@ -32,7 +32,14 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 ```
 build.bat
 ```
-Locates Ahk2Exe and AutoHotkey v2 base automatically (Program Files, LocalAppData, scoop).
+When launched without arguments, `build.bat` shows a 3-option menu:
+- `Safe build` → run `unit,integration`, then build
+- `Full build` → run `all`, then build
+- `Quick build` → skip tests, build immediately
+
+All three modes write artifacts to `dist/`.
+
+For advanced build parameters, call `scripts/build.ps1` directly. It locates Ahk2Exe and the AutoHotkey v2 base automatically (Program Files, LocalAppData, scoop).
 
 ### Run (script mode)
 ```

@@ -16,7 +16,14 @@ AutoHotkey v2 must be installed. Path to `AutoHotkey64.exe` depends on installat
 ```
 build.bat
 ```
-Auto-locates `Ahk2Exe` and the v2 base file from Program Files, LocalAppData, or scoop.
+Without arguments, `build.bat` opens a 3-option menu for local Windows users:
+- `Safe build` — run `unit,integration`, then build
+- `Full build` — run `all`, then build
+- `Quick build` — skip tests and build immediately
+
+All menu paths write artifacts to `dist/`.
+
+For advanced or scripted build parameters, call `scripts/build.ps1` directly. It auto-locates `Ahk2Exe` and the v2 base file from Program Files, LocalAppData, or scoop.
 
 ### Lint / Tests
 No lint tooling is configured.

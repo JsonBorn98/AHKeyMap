@@ -57,7 +57,15 @@ If you want to build the executable yourself:
 build.bat
 ```
 
-The wrapper calls `scripts/build.ps1`, which locates Ahk2Exe and the AutoHotkey v2 base and produces `dist/AHKeyMap.exe`.
+When launched without arguments, `build.bat` shows a small interactive menu:
+
+- `Safe build`: run `unit,integration`, then build
+- `Full build`: run `all`, then build
+- `Quick build`: skip tests and build immediately
+
+All three modes write the packaged output to `dist/`.
+
+For advanced or scripted usage, call `scripts/build.ps1` directly. The PowerShell script locates Ahk2Exe and the AutoHotkey v2 base and produces `dist/AHKeyMap.exe`.
 
 ## Automated Tests
 

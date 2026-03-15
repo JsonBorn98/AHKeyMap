@@ -122,7 +122,10 @@
 - 排除模式是配置级别，无法细化到单条映射。
 
 ## 编译
-- `build.bat` 作为薄包装调用 `scripts/build.ps1`，由后者自动寻找 Ahk2Exe 与 AutoHotkey v2 base。
+- `build.bat` 是给本地 Windows 用户的交互式入口：无参数运行时会先显示 `Safe build` / `Full build` / `Quick build` 三种模式，再调用底层脚本。
+- `Safe build` = `unit,integration -> build`；`Full build` = `all -> build`；`Quick build` = 直接 build。
+- 根目录 `build.bat` 不承担高级参数透传，保持“人用入口”语义；需要高级构建参数时，直接调用 `scripts/build.ps1`。
+- `scripts/build.ps1` 负责实际编译与打包，并自动寻找 Ahk2Exe 与 AutoHotkey v2 base。
 - 编译命令等效于：
   `Ahk2Exe.exe /in "src\AHKeyMap.ahk" /out "dist\AHKeyMap.exe" /icon "assets\icon.ico" /base "...\AutoHotkey64.exe"`
 

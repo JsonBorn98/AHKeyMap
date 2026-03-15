@@ -290,7 +290,7 @@ try {
     foreach ($suiteName in $selectedSuites) {
         $tests = @(Get-TestFilesForSuite -Root $ProjectRoot -SuiteName $suiteName)
         $suiteLogDir = Join-Path $logsRoot $suiteName
-        $null = New-Item -ItemType Directory -Path $suiteLogDir
+        $null = New-Item -ItemType Directory -Path $suiteLogDir -Force
 
         if (@($tests).Count -eq 0) {
             Write-Host "No tests found for suite '$suiteName'."
