@@ -49,7 +49,7 @@ GetConfigList() {
 
 ; Load all configs into AllConfigs (called at startup)
 LoadAllConfigs() {
-    global AllConfigs := []
+    AllConfigs.Length := 0
     configs := GetConfigList()
     for _, name in configs {
         cfg := LoadConfigData(name)
@@ -194,6 +194,10 @@ ParseProcessList(procStr) {
     return result
 }
 
+IsValidConfigName(configName) {
+    return !RegExMatch(configName, '[\\/:*?"<>|=\[\]]')
+}
+
 ; Format process scope for display (using parsed arrays)
 FormatProcessDisplay(processMode, processList, excludeProcessList) {
     if (processMode = "include") {
@@ -201,13 +205,13 @@ FormatProcessDisplay(processMode, processList, excludeProcessList) {
             return L("Config.Scope.Global")
         if (processList.Length = 1)
             return L("Config.Scope.Include.Single", processList[1])
-        return L("Config.Scope.Include.Multi", processList[1], processList.Length)
+        return L("Config.Scope.Include.Multi", processList[1], processList.Length - 1)
     } else if (processMode = "exclude") {
         if (excludeProcessList.Length = 0)
             return L("Config.Scope.Global")
         if (excludeProcessList.Length = 1)
             return L("Config.Scope.Exclude.Single", excludeProcessList[1])
-        return L("Config.Scope.Exclude.Multi", excludeProcessList[1], excludeProcessList.Length)
+        return L("Config.Scope.Exclude.Multi", excludeProcessList[1], excludeProcessList.Length - 1)
     }
     return L("Config.Scope.Global")
 }

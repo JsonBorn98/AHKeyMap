@@ -10,17 +10,22 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.7.0
+;@Ahk2Exe-SetVersion 2.8.0
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon icon.ico
 
 ; ============================================================================
 ; Global variables (shared across all modules)
 ; ============================================================================
+if !IsSet(__AHKM_TEST_MODE)
+    global __AHKM_TEST_MODE := false
+if !IsSet(__AHKM_CONFIG_DIR)
+    global __AHKM_CONFIG_DIR := ""
+
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.7.0"
+global APP_VERSION := "2.8.0"
 global SCRIPT_DIR := A_ScriptDir
-global CONFIG_DIR := SCRIPT_DIR "\configs"
+global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : SCRIPT_DIR "\configs")
 global STATE_FILE := CONFIG_DIR "\_state.ini"
 global REG_RUN_KEY := "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 global REG_VALUE_NAME := "AHKeyMap"
@@ -83,6 +88,7 @@ global PathCMappingByModSource := Map()
 global PathCModSessions := Map()
 global PathCModsUsed := Map()
 global PathCSourceKeysUsed := Map()
+global DispatchSendHook := ""
 
 ; Key capture globals
 global IsCapturing := false
@@ -166,7 +172,8 @@ OnTraySetLanguage(langCode) {
 ; ============================================================================
 ; Application entry point
 ; ============================================================================
-StartApp()
+if !__AHKM_TEST_MODE
+    StartApp()
 
 StartApp() {
     global CurrentLangCode

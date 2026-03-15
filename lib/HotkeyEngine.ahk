@@ -39,26 +39,39 @@ MakeProcessChecker(cfg) {
     return ""
 }
 
-; include mode: true when foreground window matches any process in the list
-CheckIncludeMatch(procList) {
-    for procName in procList {
-        if WinActive("ahk_exe " procName)
+NormalizeProcessName(procName) {
+    return StrLower(Trim(procName))
+}
+
+GetForegroundProcessName() {
+    try
+        return NormalizeProcessName(WinGetProcessName("A"))
+    catch
+        return ""
+}
+
+ProcessListContains(procList, procName) {
+    normalizedProc := NormalizeProcessName(procName)
+    if (normalizedProc = "")
+        return false
+
+    for listedProc in procList {
+        if (NormalizeProcessName(listedProc) = normalizedProc)
             return true
     }
     return false
 }
 
+; include mode: true when foreground window matches any process in the list
+CheckIncludeMatch(procList) {
+    fgProc := GetForegroundProcessName()
+    return (fgProc != "" && ProcessListContains(procList, fgProc))
+}
+
 ; exclude mode: true when foreground process is not in the excluded list
 CheckExcludeMatch(exclList) {
-    try
-        fgProc := WinGetProcessName("A")
-    catch
-        return false
-    for procName in exclList {
-        if (fgProc = procName)
-            return false
-    }
-    return true
+    fgProc := GetForegroundProcessName()
+    return (fgProc != "" && !ProcessListContains(exclList, fgProc))
 }
 
 ; Append a unique value to an array
@@ -581,7 +594,7 @@ RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
 ; ============================================================================
 
 SendKeyCallback(targetKey, *) {
-    Send(KeyToSendFormat(targetKey))
+    DispatchSend(KeyToSendFormat(targetKey))
 }
 
 HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, sourceKey, *) {
@@ -589,7 +602,7 @@ HoldDownCallback(targetKey, repeatDelay, repeatInterval, idx, sourceKey, *) {
     StopHoldTimer(idx)
 
     sendKey := KeyToSendFormat(targetKey)
-    Send(sendKey)
+    DispatchSend(sendKey)
 
     timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx)
     startFn := StartRepeat.Bind(idx, timerFn, repeatInterval)
@@ -625,15 +638,22 @@ RepeatTimerCallback(sendKey, sourceKey, idx, modKey := "", *) {
         StopHoldTimer(idx)
         return
     }
-    Send(sendKey)
+    DispatchSend(sendKey)
 }
 
 HoldUpCallback(idx, *) {
     StopHoldTimer(idx)
 }
 
+ShouldRestoreModifierOnSoloPress(modKey) {
+    return !IsMouseButtonKey(modKey)
+}
+
 RestoreModKeyCallback(modKey, *) {
-    Send(KeyToSendFormat(modKey))
+    if !ShouldRestoreModifierOnSoloPress(modKey)
+        return
+
+    DispatchSend(KeyToSendFormat(modKey))
 }
 
 ; ============================================================================
@@ -760,7 +780,7 @@ PathC_StartRepeat(mapping, modKey, sourceKey) {
     ; Defensive cleanup: stop any existing timer to avoid orphan timers on re-entry
     StopHoldTimer(idx)
 
-    Send(sendKey)
+    DispatchSend(sendKey)
 
     timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx, modKey)
     startFn := StartRepeat.Bind(idx, timerFn, mapping.repeatInterval)
@@ -802,7 +822,7 @@ PathC_ModUpCallback(modKey, *) {
 }
 
 PathC_DismissContextMenu(*) {
-    Send("{Escape}")
+    DispatchSend("{Escape}")
 }
 
 ; Path C source-key down callback (shared entry point)
@@ -838,7 +858,7 @@ PathC_SourceDownCallback(sourceKey, *) {
                     session.activeSources[sourceKey] := []
                 session.activeSources[sourceKey].Push(mapping.id)
             } else {
-                Send(KeyToSendFormat(mapping.targetKey))
+                DispatchSend(KeyToSendFormat(mapping.targetKey))
             }
 
             handled := true
@@ -851,7 +871,7 @@ PathC_SourceDownCallback(sourceKey, *) {
 
     if (!handled) {
         ; No Path C mapping matched, fall back to the raw source key
-        Send(KeyToSendFormat(sourceKey))
+        DispatchSend(KeyToSendFormat(sourceKey))
     }
 }
 

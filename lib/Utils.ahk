@@ -9,6 +9,7 @@ global REG_RUN_KEY
 global REG_VALUE_NAME
 global ProcessPickerOpen
 global ProcessPickerGui
+global DispatchSendHook
 
 ; ============================================================================
 ; Key format conversion
@@ -72,6 +73,26 @@ KeyToSendFormat(ahkKey) {
         result .= remaining
 
     return result
+}
+
+DispatchSend(sendKey) {
+    if (sendKey = "")
+        return
+
+    if (DispatchSendHook != "") {
+        DispatchSendHook.Call(sendKey)
+        return
+    }
+
+    Send(sendKey)
+}
+
+IsMouseButtonKey(keyName) {
+    return (keyName = "LButton"
+        || keyName = "RButton"
+        || keyName = "MButton"
+        || keyName = "XButton1"
+        || keyName = "XButton2")
 }
 
 ; ============================================================================
@@ -162,7 +183,6 @@ OnProcessPickOK(procGui, targetEdit, lb, manualEdit, isMultiLine, *) {
             targetEdit.Value := result
         }
     }
-    global ProcessPickerOpen := false
     procGui.Destroy()
 }
 

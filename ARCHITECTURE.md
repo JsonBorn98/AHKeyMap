@@ -5,12 +5,14 @@
 ## 总览
 - 语言：AutoHotkey v2
 - 入口：`AHKeyMap.ahk`
-- 结构：主入口 + 7 个功能模块
+- 结构：主入口 + 8 个功能模块
 - 配置：`configs/*.ini`，状态文件 `_state.ini`
+- 自动化测试：`tests/*` + `scripts/Test.ps1`
 
 ## 模块职责
 - `AHKeyMap.ahk`：全局变量初始化、模块 `#Include`、启动入口
 - `lib/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
+- `lib/Localization.ahk`：本地化语言包与 `L(key, args*)` 辅助函数
 - `lib/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
 - `lib/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `lib/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
@@ -21,6 +23,27 @@
 ## 全局变量管理
 - 所有全局变量只在 `AHKeyMap.ahk` 中定义并初始化。
 - 模块中仅用 `global VarName` 进行引用声明，不重复初始化（重复赋值会在 `#Include` 时覆盖主入口的值）。
+
+## 自动化测试架构
+
+### 测试入口
+- 顶层入口：`scripts/Test.ps1`
+- 测试文件按约定分层放在：
+  - `tests/unit/*.test.ahk`
+  - `tests/integration/*.test.ahk`
+  - `tests/gui/*.test.ahk`
+  - `tests/manual-e2e/`（暂不纳入阻塞式 CI）
+
+### 测试隔离机制
+- `AHKeyMap.ahk` 支持两个测试专用覆盖变量：
+  - `__AHKM_TEST_MODE`：为 `true` 时跳过自动 `StartApp()`
+  - `__AHKM_CONFIG_DIR`：测试时把配置目录重定向到临时目录，避免污染真实 `configs/`
+- `DispatchSendHook` 可在测试中拦截 `Send()` 路径，用来验证“准备发送什么按键”，而不真的把输入发到桌面系统。
+
+### 测试基建
+- `tests/_support/TestBase.ahk` 提供断言、临时目录清理、GUI/热键状态重置、发送捕获等公共能力。
+- `gui` 层目前属于“进程内 GUI 冒烟测试”，验证主界面流程与磁盘状态，不做真实物理键鼠回放。
+- 真实桌面输入、浏览器手势、时序敏感场景仍保留为手工 E2E 检查。
 
 ## 配置文件约定
 ### 配置 INI（每个配置一个文件）

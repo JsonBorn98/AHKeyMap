@@ -19,9 +19,27 @@ build.bat
 Auto-locates `Ahk2Exe` and the v2 base file from Program Files, LocalAppData, or scoop.
 
 ### Lint / Tests
-No automated lint or tests. After changes, validate manually:
-- Launch app, open main GUI, exercise hotkey paths A/B/C
-- Config CRUD (new, copy, delete), process modes (include/exclude)
+No lint tooling is configured.
+
+Automated tests:
+```
+pwsh ./scripts/Test.ps1 -Suite all
+```
+
+Fast non-GUI loop:
+```
+pwsh ./scripts/Test.ps1 -Suite unit,integration
+```
+
+Current suites:
+- `unit` — pure helpers, formatting, scope logic
+- `integration` — config I/O, conflict detection, hotkey-engine state
+- `gui` — in-process GUI smoke flow
+
+Manual validation is still needed for true desktop input behavior:
+- Exercise hotkey paths A/B/C against a real target app
+- Confirm Path C `RButton` gesture / wheel behavior
+- Check focus-switch timing edge cases and long-press repeat behavior
 - Confirm `_state.ini` updates and no `.tmp` files remain after save
 
 ## Architecture
@@ -29,18 +47,24 @@ No automated lint or tests. After changes, validate manually:
 Single-entry AHK v2 app. `AHKeyMap.ahk` initializes all globals and `#Include`s 7 modules in order:
 
 ```
-Config.ahk → Utils.ahk → HotkeyEngine.ahk → KeyCapture.ahk
-  → GuiMain.ahk → MappingEditor.ahk → GuiEvents.ahk
+Config.ahk → Utils.ahk → Localization.ahk → HotkeyEngine.ahk
+  → KeyCapture.ahk → GuiMain.ahk → MappingEditor.ahk → GuiEvents.ahk
 ```
 
 **Module responsibilities:**
 - `Config.ahk` — load/save INI configs (atomic write via `.tmp`), enabled-state persistence (also atomic)
+- `Localization.ahk` — in-memory language packs and `L(key, args*)`
 - `HotkeyEngine.ahk` — hotkey register/unregister, three registration paths (A/B/C), cross-path B/C conflict detection
 - `KeyCapture.ahk` — key capture (polling + mouse hook), 200ms startup delay, auto-cancel on focus loss
 - `GuiMain.ahk` — window construction, tray menu, modal helpers
 - `GuiEvents.ahk` — all GUI event handlers (CRUD, scope editing)
 - `MappingEditor.ahk` — mapping edit dialog
 - `Utils.ahk` — key display conversion, process picker, auto-start
+
+**Automated testing:**
+- `scripts/Test.ps1` discovers and runs `tests/unit`, `tests/integration`, and `tests/gui`
+- `tests/_support/TestBase.ahk` provides assertions, sandbox setup, and cleanup helpers
+- GUI failures may produce screenshots under `test-results/screenshots`
 
 **Hotkey engine paths** (`HotkeyEngine.ahk`):
 - **Path A** (`RegisterPathA`): no modifier → direct `Hotkey(source, callback)`

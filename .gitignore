@@ -5,3 +5,4 @@ dist/
 *.tmp
 .claude/
 .cursor/
+test-results/

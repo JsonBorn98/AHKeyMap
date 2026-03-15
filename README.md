@@ -59,6 +59,37 @@ build.bat
 
 The script locates Ahk2Exe and the AutoHotkey v2 base and produces `AHKeyMap.exe`.
 
+## Automated Tests
+
+AHKeyMap now includes an automated regression suite for config logic, hotkey-engine behavior, and a lightweight GUI smoke flow.
+
+Run the full suite locally:
+
+```powershell
+pwsh ./scripts/Test.ps1 -Suite all
+```
+
+Run only the fast non-GUI suites:
+
+```powershell
+pwsh ./scripts/Test.ps1 -Suite unit,integration
+```
+
+Current suites:
+
+- `unit`: pure helper / formatting / scope logic
+- `integration`: config I/O, conflict detection, hotkey-engine state
+- `gui`: in-process GUI smoke test for the main config workflow
+
+Test runs use an isolated temporary config directory and do not modify your real `configs/` folder.
+Artifacts are written to `test-results/`:
+
+- `logs/`: one log per test file
+- `screenshots/`: desktop screenshots captured only when a GUI test fails
+- `summary.json`: machine-readable run summary
+
+Real desktop input scenarios such as browser gestures, true global hotkeys, and timing-sensitive mouse/keyboard behavior are still tracked as manual end-to-end checks under `tests/manual-e2e/`.
+
 ## Quick Start
 
 1. Launch AHKeyMap (script or EXE).
@@ -128,7 +159,7 @@ On first run (when `_state.ini` has no `UILanguage`), the app defaults to Englis
 You can change the UI language from the tray menu:
 
 - Right-click the tray icon → `Language` → choose `English` or `简体中文`.
-- You’ll be asked to restart AHKeyMap for the change to take effect.
+- The main window and tray menu are rebuilt immediately; a full process restart is not required.
 
 The config file format itself is language-agnostic; only the UI strings are localized.
 
@@ -137,6 +168,7 @@ The config file format itself is language-agnostic; only the UI strings are loca
 - Chinese user guide: [README.zh-CN.md](README.zh-CN.md)
 - Architecture and implementation notes: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Agent/automation guidelines: [AGENTS.md](AGENTS.md)
+- Automated test suites: `tests/`
 - Deferred bug backlog: [BUG_BACKLOG.md](BUG_BACKLOG.md)
 
 ## License

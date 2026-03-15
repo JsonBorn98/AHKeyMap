@@ -12,14 +12,17 @@ This is a Windows AutoHotkey v2 app with a modular AHK layout.
 - `AHKeyMap.ahk` (~181 lines) — main entry, global variable initialization, named constants, `#Include` list, startup
 - `lib/Config.ahk` (~370 lines) — config load/save (atomic write), config list management, enabled state persistence
 - `lib/Utils.ahk` (~222 lines) — key display conversion, process picker (with dedup), auto-start utilities
+- `lib/Localization.ahk` (~300 lines) — localization packs and `L(key, args*)`
 - `lib/HotkeyEngine.ahk` (~718 lines) — hotkey register/unregister, long-press repeat, modifier logic (paths A/B/C), conflict detection (including cross-path B/C), scope canonicalization
 - `lib/KeyCapture.ahk` (~480 lines) — key capture mechanism (polling + mouse hook, auto-cancel on focus loss)
 - `lib/GuiMain.ahk` (~161 lines) — main window construction (resize-adaptive layout), tray menu, modal window helpers
 - `lib/MappingEditor.ahk` (~146 lines) — mapping edit dialog, key capture entry, repeat parameter validation
 - `lib/GuiEvents.ahk` (~402 lines) — GUI event handlers (config CRUD, scope editing, config name validation)
+- `tests/` — automated AHK test suites (`unit`, `integration`, `gui`, `manual-e2e`)
+- `scripts/Test.ps1` — PowerShell test runner, suite discovery, log/screenshot/result collection
 - `configs/` — runtime INI files (gitignored)
 - `build.bat` — compile script for Ahk2Exe
-- `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `*.bak`, `*.tmp`, `.claude/`, `.cursor/`
+- `.gitignore` — ignores `AHKeyMap.exe`, `configs/`, `dist/`, `test-results/`, `*.bak`, `*.tmp`, `.claude/`, `.cursor/`
 
 ## Build / run / test
 
@@ -39,15 +42,26 @@ Path varies by installation.
 No lint tooling configured.
 
 ### Tests
-No automated tests. Validate changes manually:
-- Launch app → open main GUI
-- Create/modify a config → verify hotkeys reload
-- Verify `_state.ini` updates in `configs/`
-- Verify no `.tmp` files remain in `configs/` after save
-- Exercise Hotkey paths A/B/C if your change touches engine logic
-- Config CRUD: new, copy, delete; verify dropdown and status count
-- Process modes: include and exclude with multiple processes
-- Long-press repeat: start/stop timers cleanly
+Automated regression suite:
+```
+pwsh ./scripts/Test.ps1 -Suite all
+```
+
+Fast inner loop (non-GUI):
+```
+pwsh ./scripts/Test.ps1 -Suite unit,integration
+```
+
+Coverage today:
+- `unit` — pure helpers, formatting, scope logic
+- `integration` — config I/O, conflict detection, hotkey engine state
+- `gui` — in-process GUI smoke flow for config CRUD and mapping edits
+
+Manual validation is still required for true desktop end-to-end input scenarios:
+- Exercise Hotkey paths A/B/C against a real target app
+- Path C `RButton` + wheel / gesture behavior
+- Focus-switch timing and include/exclude scope edge cases
+- Long-press repeat start/stop behavior in real applications
 
 ## Versioning (MUST follow)
 Every change must update version in **both** places:
@@ -76,11 +90,12 @@ Rules: new features bump minor, bug fixes bump patch. Both values must match.
 `AHKeyMap.ahk` owns the `#Include` list. Current order:
 1. `lib/Config.ahk`
 2. `lib/Utils.ahk`
-3. `lib/HotkeyEngine.ahk`
-4. `lib/KeyCapture.ahk`
-5. `lib/GuiMain.ahk`
-6. `lib/MappingEditor.ahk`
-7. `lib/GuiEvents.ahk`
+3. `lib/Localization.ahk`
+4. `lib/HotkeyEngine.ahk`
+5. `lib/KeyCapture.ahk`
+6. `lib/GuiMain.ahk`
+7. `lib/MappingEditor.ahk`
+8. `lib/GuiEvents.ahk`
 
 Boundaries:
 - GUI construction → `GuiMain.ahk`; event handlers → `GuiEvents.ahk`

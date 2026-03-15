@@ -84,7 +84,7 @@ OnNewConfigOK(newGui, *) {
         return
     }
 
-    if RegExMatch(configName, '[\\/:*?"<>|=\[\]]') {
+    if !IsValidConfigName(configName) {
         MsgBox(L("GuiEvents.Error.NameInvalidChars"), APP_NAME, "Icon!")
         return
     }
@@ -152,7 +152,7 @@ OnCopyConfigOK(copyGui, *) {
         return
     }
 
-    if RegExMatch(newName, '[\\/:*?"<>|=\[\]]') {
+    if !IsValidConfigName(newName) {
         MsgBox(L("GuiEvents.Error.NameInvalidChars"), APP_NAME, "Icon!")
         return
     }
@@ -188,22 +188,8 @@ OnDeleteConfig(*) {
     }
 
     result := MsgBox(Format(L("GuiEvents.Confirm.DeleteConfig"), CurrentConfigName), APP_NAME, "YesNo Icon?")
-    if (result = "Yes") {
-        if FileExist(CurrentConfigFile)
-            FileDelete(CurrentConfigFile)
-
-        ; Remove from AllConfigs
-        idx := FindConfigIndex(CurrentConfigName)
-        if (idx > 0)
-            AllConfigs.RemoveAt(idx)
-        SaveEnabledStates()
-        global CurrentConfigName := ""
-        global CurrentConfigFile := ""
-        global Mappings := []
-
-        ReloadAllHotkeys()
-        RefreshConfigList()
-    }
+    if (result = "Yes")
+        DeleteCurrentConfigAndRefresh()
 }
 
 OnChangeProcess(*) {
@@ -397,6 +383,23 @@ ProcTextToStr(rawText) {
         }
     }
     return procStr
+}
+
+DeleteCurrentConfigAndRefresh() {
+    if FileExist(CurrentConfigFile)
+        FileDelete(CurrentConfigFile)
+
+    idx := FindConfigIndex(CurrentConfigName)
+    if (idx > 0)
+        AllConfigs.RemoveAt(idx)
+
+    SaveEnabledStates()
+    global CurrentConfigName := ""
+    global CurrentConfigFile := ""
+    global Mappings := []
+
+    ReloadAllHotkeys()
+    RefreshConfigList()
 }
 
 

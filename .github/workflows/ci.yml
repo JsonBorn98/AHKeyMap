@@ -41,6 +41,21 @@ jobs:
             -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
             -Ahk2ExeVersion $env:AHK2EXE_VERSION
 
+      - name: Run automated tests
+        shell: pwsh
+        run: |
+          .\scripts\Test.ps1 `
+            -Suite all `
+            -Ci `
+            -AutoHotkeyPath $env:AHK_BASE_FILE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHKeyMap-${{ env.APP_VERSION }}-test-results
+          path: test-results
+
       - name: Build release artifacts
         shell: pwsh
         run: |
