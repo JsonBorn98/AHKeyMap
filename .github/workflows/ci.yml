@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  AUTOHOTKEY_VERSION: "2.0.21"
+  AHK2EXE_VERSION: "1.1.37.02a0a"
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate app version
+        shell: pwsh
+        run: |
+          $version = (& .\scripts\Get-AppVersion.ps1).Trim()
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Validated version $version"
+
+      - name: Download AutoHotkey toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          .\scripts\Download-GitHubToolchain.ps1 `
+            -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
+            -Ahk2ExeVersion $env:AHK2EXE_VERSION
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Ahk2ExePath $env:AHK2EXE_PATH `
+            -BaseFilePath $env:AHK_BASE_FILE
+
+      - name: Upload CI artifacts
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHKeyMap-${{ env.APP_VERSION }}-ci
+          path: |
+            dist/AHKeyMap.exe
+            dist/AHKeyMap-v${{ env.APP_VERSION }}-windows-x64.zip
+            dist/SHA256SUMS.txt

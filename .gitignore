@@ -1,5 +1,6 @@
 AHKeyMap.exe
 configs/
+dist/
 *.bak
 *.tmp
 .claude/

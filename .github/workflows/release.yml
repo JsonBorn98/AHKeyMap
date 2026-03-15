@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  AUTOHOTKEY_VERSION: "2.0.21"
+  AHK2EXE_VERSION: "1.1.37.02a0a"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)$') {
+              throw "Release tag must look like vX.Y.Z. Actual tag: $tag"
+          }
+
+          $tagVersion = $Matches[1]
+          $appVersion = (& .\scripts\Get-AppVersion.ps1).Trim()
+          if ($tagVersion -ne $appVersion) {
+              throw "Tag version $tagVersion does not match app version $appVersion"
+          }
+
+          git fetch origin master --depth=1
+          $remoteBranches = git branch -r --contains $env:GITHUB_SHA
+          if ($remoteBranches -notmatch 'origin/master') {
+              throw "Tagged commit must be reachable from origin/master"
+          }
+
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download AutoHotkey toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          .\scripts\Download-GitHubToolchain.ps1 `
+            -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
+            -Ahk2ExeVersion $env:AHK2EXE_VERSION
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Ahk2ExePath $env:AHK2EXE_PATH `
+            -BaseFilePath $env:AHK_BASE_FILE
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $assets = @(
+              "dist/AHKeyMap.exe",
+              "dist/AHKeyMap-v$env:APP_VERSION-windows-x64.zip",
+              "dist/SHA256SUMS.txt"
+          )
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag $assets --clobber
+          } else {
+              gh release create $tag $assets `
+                --title "AHKeyMap v$env:APP_VERSION" `
+                --generate-notes
+          }
