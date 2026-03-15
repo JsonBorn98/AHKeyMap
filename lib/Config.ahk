@@ -333,15 +333,18 @@ SaveConfig() {
 SaveEnabledStates() {
     tempFile := STATE_FILE ".tmp"
     try {
+        ; 确保配置目录存在（防御性处理，避免极端情况下目录被删除）
+        if !DirExist(CONFIG_DIR)
+            DirCreate(CONFIG_DIR)
+
         if FileExist(tempFile)
             FileDelete(tempFile)
 
-        ; 保留 [State] 节
+        ; 保留 [State] 节，始终写出 LastConfig 键（即便为空也会创建文件）
         lastConfig := ""
         if FileExist(STATE_FILE)
             lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
-        if (lastConfig != "")
-            IniWrite(lastConfig, tempFile, "State", "LastConfig")
+        IniWrite(lastConfig, tempFile, "State", "LastConfig")
 
         for _, cfg in AllConfigs
             IniWrite(cfg["enabled"] ? "1" : "0", tempFile, "EnabledConfigs", cfg["name"])
