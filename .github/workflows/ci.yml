@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+env:
+  AUTOHOTKEY_VERSION: "2.0.21"
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate app version
+        shell: pwsh
+        run: |
+          $version = (& .\scripts\Get-AppVersion.ps1).Trim()
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Validated version $version"
+
+      - name: Download AutoHotkey toolchain
+        shell: pwsh
+        run: |
+          $url = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$env:AUTOHOTKEY_VERSION/AutoHotkey_$env:AUTOHOTKEY_VERSION.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "autohotkey.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "autohotkey"
+
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          if (Test-Path -LiteralPath $extractRoot) {
+              Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
+
+          $ahk2Exe = Get-ChildItem -Path $extractRoot -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
+          $baseFile = Get-ChildItem -Path $extractRoot -Recurse -Filter AutoHotkey64.exe | Where-Object { $_.FullName -match '\\v2\\' } | Select-Object -First 1
+
+          if (-not $ahk2Exe) { throw "Ahk2Exe.exe not found in extracted toolchain" }
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found in extracted toolchain" }
+
+          "AHK2EXE_PATH=$($ahk2Exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Ahk2ExePath $env:AHK2EXE_PATH `
+            -BaseFilePath $env:AHK_BASE_FILE
+
+      - name: Upload CI artifacts
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AHKeyMap-${{ env.APP_VERSION }}-ci
+          path: |
+            dist/AHKeyMap.exe
+            dist/AHKeyMap-v${{ env.APP_VERSION }}-windows-x64.zip
+            dist/SHA256SUMS.txt
