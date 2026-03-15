@@ -57,22 +57,23 @@ function Get-ReleaseByTag {
         [switch]$AllowMissing
     )
 
-    $uri = "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Tag"
+    $repoPath = "{0}/{1}" -f $Owner, $Repo
+    $uri = "https://api.github.com/repos/{0}/releases/tags/{1}" -f $repoPath, $Tag
     try {
         $release = Invoke-RestMethod `
             -Uri $uri `
             -Headers (Get-GitHubApiHeaders) `
             -UserAgent (Get-GitHubUserAgent)
-        Write-Host "Resolved release tag $Tag for $Owner/$Repo as $($release.tag_name)"
+        Write-Host ("Resolved release tag {0} for {1} as {2}" -f $Tag, $repoPath, $release.tag_name)
         return $release
     } catch {
         $statusCode = Get-HttpStatusCode -ErrorRecord $_
         if ($AllowMissing -and $statusCode -eq 404) {
-            Write-Host "Release tag not found for $Owner/$Repo: $Tag"
+            Write-Host ("Release tag not found for {0}: {1}" -f $repoPath, $Tag)
             return $null
         }
 
-        throw "Failed to query release tag $Tag for $Owner/$Repo. Status: $statusCode. $($_.Exception.Message)"
+        throw ("Failed to query release tag {0} for {1}. Status: {2}. {3}" -f $Tag, $repoPath, $statusCode, $_.Exception.Message)
     }
 }
 
