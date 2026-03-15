@@ -78,23 +78,27 @@ SupportsKeyUpHotkey(hotkeyName) {
 
 ; 卸载所有当前热键
 UnregisterAllHotkeys() {
-    ; 卸载所有已注册的热键
+    ; 先构造一个轻量级快照，避免在卸载过程中引用可能已被其他逻辑修改的对象结构
+    hotkeysSnapshot := []
     for _, hk in ActiveHotkeys {
-        try {
-            ; 防御性检查：确保 hk 是有效的 Map 对象
-            if (Type(hk) != "Map")
-                continue
+        if (Type(hk) != "Map")
+            continue
+        if !hk.Has("key")
+            continue
 
-            if (hk.Has("checker") && hk["checker"] != "")
-                HotIf(hk["checker"])
-            else
-                HotIf()
+        checkerVal := ""
+        if (hk.Has("checker") && hk["checker"] != "")
+            checkerVal := hk["checker"]
 
-            Hotkey(hk["key"], "Off")
-            if (hk.Has("keyUp"))
-                Hotkey(hk["keyUp"], "Off")
-        }
+        keyVal := hk["key"]
+        keyUpVal := ""
+        if (hk.Has("keyUp"))
+            keyUpVal := hk["keyUp"]
+
+        hotkeysSnapshot.Push({ checker: checkerVal, key: keyVal, keyUp: keyUpVal })
     }
+
+    ; 立即清空全局状态，防止后续逻辑继续持有旧对象引用
     HotIf()
     global ActiveHotkeys := []
     global InterceptModKeys := Map()
@@ -105,6 +109,24 @@ UnregisterAllHotkeys() {
     global PathCModSessions := Map()
     global PathCModsUsed := Map()
     global PathCSourceKeysUsed := Map()
+
+    ; 再根据快照逐个卸载热键，过程中的脚本级错误以防御方式忽略，避免影响整体清理
+    for _, info in hotkeysSnapshot {
+        try {
+            if (info.checker != "")
+                HotIf(info.checker)
+            else
+                HotIf()
+
+            if (info.key != "")
+                Hotkey(info.key, "Off")
+            if (info.keyUp != "")
+                Hotkey(info.keyUp, "Off")
+        } catch {
+            continue
+        }
+    }
+    HotIf()
 }
 
 ; 重新加载所有已启用配置的热键
