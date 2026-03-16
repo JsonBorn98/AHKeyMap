@@ -3,157 +3,156 @@ Guidance for agentic coding in this repository.
 Audience: coding agents working on AHKeyMap.
 ## Project snapshot
 - Windows desktop key remapping tool.
-- Language: AutoHotkey v2 only.
+- Language: AutoHotkey v2 only (`#Requires AutoHotkey v2.0`).
 - Entry point: `src/AHKeyMap.ahk`.
-- Runtime data: `configs/*.ini` and `configs/_state.ini`.
+- Runtime data: `configs/*.ini` and `configs/_state.ini` (created at runtime, gitignored).
+- Also see `CLAUDE.md` for a shorter quick-reference.
 ## Sources of truth
 - Read `docs/architecture.md` before non-trivial changes.
 - Read `docs/bug-backlog.md` before bug-fix work.
 - Use this root `AGENTS.md` as the operational guide.
 ## Cursor / Copilot rules
-- `.cursor/rules/` does not exist.
-- `.cursorrules` does not exist.
-- `.github/copilot-instructions.md` does not exist.
+- `.cursor/rules/`, `.cursorrules`, `.github/copilot-instructions.md` — none exist.
 - No extra Cursor or GitHub Copilot instructions need merging.
 ## Repo map
-- `src/AHKeyMap.ahk` — globals, constants, include list, startup.
-- `src/core/Config.ahk`, `src/core/Localization.ahk` — config/state and localization.
-- `src/core/HotkeyEngine.ahk`, `src/core/KeyCapture.ahk` — hotkey engine and input capture.
-- `src/shared/Utils.ahk` — key formatting, process picker, auto-start helpers.
-- `src/ui/GuiMain.ahk`, `src/ui/MappingEditor.ahk`, `src/ui/GuiEvents.ahk` — GUI construction and events.
-- `tests/support/TestBase.ahk` — assertions, sandbox reset, send capture.
-- `scripts/test.ps1` — test runner; `scripts/build.ps1` — compiler/package script.
+```
+src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
+src/core/Config.ahk        — config/state INI I/O (atomic writes)
+src/core/Localization.ahk  — L(key, args*) and en-US / zh-CN packs
+src/core/HotkeyEngine.ahk  — three-path hotkey registration (A/B/C), conflict detection
+src/core/KeyCapture.ahk    — key capture (polling + mouse hook)
+src/shared/Utils.ahk       — key formatting, process picker, auto-start helpers
+src/ui/GuiMain.ahk         — main window, tray menu, modal helpers
+src/ui/MappingEditor.ahk   — mapping edit dialog
+src/ui/GuiEvents.ahk       — GUI event handlers (config/mapping CRUD)
+tests/support/TestBase.ahk — assertions, sandbox reset, send capture
+scripts/test.ps1           — test runner (PowerShell 7+)
+scripts/build.ps1          — compiler/package script
+```
 ## Build commands
-### Interactive/local entrypoint
 ```powershell
-build.bat
-```
-- `Safe build` → run `unit,integration`, then build.
-- `Full build` → run `all`, then build.
-- `Quick build` → skip tests, build immediately.
-### Non-interactive shortcuts
-```powershell
-build.bat full
-build.bat skiptests
-```
-### Direct build script
-```powershell
-pwsh ./scripts/build.ps1
-pwsh ./scripts/build.ps1 -OutputDir dist
-pwsh ./scripts/build.ps1 -Ahk2ExePath "C:\path\Ahk2Exe.exe" -BaseFilePath "C:\path\AutoHotkey64.exe"
-```
-### Run from source
-```powershell
-AutoHotkey64.exe src\AHKeyMap.ahk
+build.bat                # Interactive menu: Safe / Full / Quick
+build.bat full           # Run ALL tests, then build
+build.bat skiptests      # Skip tests, build only
+pwsh ./scripts/build.ps1 # Direct build (auto-locates Ahk2Exe)
+AutoHotkey64.exe src\AHKeyMap.ahk  # Run from source
 ```
 ## Lint / static checks
-- No lint tool is configured.
-- Do not invent lint/build tooling unless the user asks.
+- No lint tool is configured. Do not invent lint/build tooling unless asked.
 - Verify with focused code reading, targeted tests, and diagnostics.
 ## Test commands
-### Full regression
 ```powershell
-pwsh ./scripts/test.ps1 -Suite all
-```
-### Fast local loop
-```powershell
-pwsh ./scripts/test.ps1 -Suite unit,integration
-```
-### Run one suite
-```powershell
-pwsh ./scripts/test.ps1 -Suite unit
-pwsh ./scripts/test.ps1 -Suite integration
-pwsh ./scripts/test.ps1 -Suite gui
+pwsh ./scripts/test.ps1 -Suite all              # Full regression
+pwsh ./scripts/test.ps1 -Suite unit,integration  # Fast local loop
+pwsh ./scripts/test.ps1 -Suite unit              # Single suite
 ```
 ### Run a single test file
-The PowerShell runner has **no** `-TestFile` option.
-Run the test file directly with AutoHotkey:
+The runner has no `-TestFile` flag. Run the file directly:
 ```powershell
 AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
-AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\integration\config_io.test.ahk
-AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\gui\main_smoke.test.ahk
 ```
-- For runner-style per-file logs, set `AHKM_TEST_LOG_FILE` before launch.
-### Useful runner options
-```powershell
-pwsh ./scripts/test.ps1 -Suite unit -Ci
-pwsh ./scripts/test.ps1 -Suite unit -OutputDir test-results-unit
-pwsh ./scripts/test.ps1 -Suite unit -AutoHotkeyPath "C:\path\AutoHotkey64.exe"
-```
-- `-Ci` keeps running after failures; `-OutputDir` avoids deleting the default `test-results/` folder.
+Set `AHKM_TEST_LOG_FILE=path.log` before launch for runner-style per-file logs.
+### Runner options
+- `-Ci` — keep running after failures (don't stop on first).
+- `-OutputDir <dir>` — avoid deleting default `test-results/`.
+- `-AutoHotkeyPath <exe>` — override runtime location.
+### Test artifacts
+- `test-results/summary.json` — machine-readable run summary.
+- `test-results/logs/` — one log per test file (`START`/`PASS`/`FAIL` lines).
+- `test-results/screenshots/` — captured only on GUI test failures.
 ## Test execution constraints
-- Do not run multiple `pwsh ./scripts/test.ps1 ...` commands concurrently in one worktree.
-- The runner deletes `test-results/` at the start unless `-OutputDir` is used; `gui` tests must run exclusively.
-- Outputs: `test-results/summary.json`, `test-results/logs/`, `test-results/screenshots/`.
-- Manual verification is still needed for real-app Path A/B/C behavior, Path C `RButton` gestures, focus/process-scope edges, and long-press repeat timing.
+- Never run `test.ps1` concurrently in the same worktree.
+- The runner deletes `test-results/` on start; `gui` tests must run exclusively.
+- Manual verification still needed: real-app Path A/B/C, RButton gestures, focus edges, long-press timing.
+## Test authoring
+```ahk
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+global __AHKM_TEST_MODE := true
+global __AHKM_CONFIG_DIR := A_Temp "\AHKeyMapTests\" A_ScriptName "-" A_TickCount "\configs"
+#Include "..\..\src\AHKeyMap.ahk"
+#Include "..\support\TestBase.ahk"
+RegisterTest("description", Test_FunctionName)
+RunRegisteredTests()
+Test_FunctionName() {
+    AssertEq(expected, actual)
+}
+```
+- Assertions: `AssertTrue`, `AssertFalse`, `AssertEq`, `AssertMapHas`, `AssertFileExists`.
+- Helpers: `MakeMapping(...)`, `BuildConfigRecord(...)`, `SeedConfigFile(...)`, `EnableSendCapture()`.
+- Each test runs in an isolated temp config dir; `ResetTestSandbox()` runs between tests.
+## CI / CD
+- `.github/workflows/ci.yml` — runs on push/PR to `master`; runs all test suites then builds.
+- `.github/workflows/release.yml` — triggered by `v*.*.*` tags; validates tag matches `APP_VERSION`, builds, publishes GitHub Release.
+- CI uses `scripts/download-github-toolchain.ps1` to fetch AutoHotkey v2 + Ahk2Exe.
 ## Versioning / release rules
-- Every feature or bug fix must update both version declarations in `src/AHKeyMap.ahk`: `;@Ahk2Exe-SetVersion x.y.z` and `global APP_VERSION := "x.y.z"`.
-- New features bump the minor version; bug fixes bump the patch version.
-- The two version values must always match.
+- Every feature or bug fix must update **both** version declarations in `src/AHKeyMap.ahk`:
+  `;@Ahk2Exe-SetVersion x.y.z` and `global APP_VERSION := "x.y.z"`.
+- New features bump minor; bug fixes bump patch. The two values must always match.
 - Only commit when the user explicitly asks.
-- Prefer English conventional subjects such as `feat: ...`, `fix: ...`, `docs: ...`.
-- If the user asks for a release tag, create `vX.Y.Z` matching `APP_VERSION`.
+- Commit messages: English conventional subjects — `feat: ...`, `fix: ...`, `docs: ...`.
+- Release tags: `vX.Y.Z` matching `APP_VERSION`.
 ## Include / import rules
-- `src/AHKeyMap.ahk` owns the `#Include` list.
-- Do not add `#Include` lines from leaf modules.
-- Keep include order aligned with dependency flow:
-  1. `core/Config.ahk`
-  2. `shared/Utils.ahk`
-  3. `core/Localization.ahk`
-  4. `core/HotkeyEngine.ahk`
-  5. `core/KeyCapture.ahk`
-  6. `ui/GuiMain.ahk`
-  7. `ui/MappingEditor.ahk`
-  8. `ui/GuiEvents.ahk`
-- Add new modules only from `src/AHKeyMap.ahk`.
+- `src/AHKeyMap.ahk` owns the `#Include` list. Do not add includes from leaf modules.
+- Include order follows dependency flow:
+  1. `core/Config.ahk` 2. `shared/Utils.ahk` 3. `core/Localization.ahk`
+  4. `core/HotkeyEngine.ahk` 5. `core/KeyCapture.ahk`
+  6. `ui/GuiMain.ahk` 7. `ui/MappingEditor.ahk` 8. `ui/GuiEvents.ahk`
 ## Code style
 ### Language and structure
-- Use AutoHotkey v2 syntax only; never write v1-style commands.
-- Keep code imperative and close to existing module patterns.
+- AutoHotkey v2 syntax only; never v1-style commands.
+- Keep code imperative, close to existing module patterns.
 - Prefer small helper functions over long event handlers.
-- Keep edits scoped; do not refactor unrelated code opportunistically.
-### Comments and documentation
-- Write code, identifiers, comments, and new technical docs in English.
-- Chinese is acceptable in agent discussion, not as repository source text.
-- Preserve existing banner-style section comments.
-### Naming and formatting
-- Functions and globals: `PascalCase`; locals: `camelCase`; constants: `UPPER_SNAKE`.
-- Test functions: `Test_DescriptiveName`.
-- Indent with 4 spaces and use double-quoted strings.
-- Keep lines readable; do not compress logic for brevity.
-- Preserve surrounding whitespace/comment style instead of reformatting large blocks.
+- Keep edits scoped; do not refactor unrelated code.
+### Naming
+- Functions and globals: `PascalCase`. Locals: `camelCase`. Constants: `UPPER_SNAKE`.
+- Test functions: `Test_DescriptiveName` (e.g. `Test_ScopesOverlap_CoversPriorityCases`).
+- Callback suffix conventions: `OnConfigSelect`, `SendKeyCallback`, `HoldDownCallback`.
+### Formatting
+- Indent with 4 spaces; no tabs.
+- Double-quoted strings only (`"..."`).
+- String concatenation via space or `.=`; positional format args `{1}`, `{2}`.
+- Keep lines readable; preserve surrounding whitespace/comment style.
+### Comments
+- English only in source (Chinese acceptable in agent discussion).
+- File headers: banner-style `; ==== ... ====` blocks.
+- Function-level: one-line `; Description` above the function.
+- Preserve existing banner section separators.
 ### Types and shared state
-- Use `Map()` for keyed records and registries; arrays for ordered collections.
-- Config records and mappings are Map-based.
-- Copy mapping/config entries when duplicating them.
-- Coerce numeric INI values with `Integer()` when loading.
-- Define and initialize globals only in `src/AHKeyMap.ahk`.
-- Other modules may declare `global VarName` but must not reinitialize shared globals.
-- Prefer in-place mutation over replacing shared arrays/maps.
+- `Map()` for keyed records; arrays for ordered collections; object literals for simple records.
+- Config records and mappings are Map-based — copy entries when duplicating (`for k, v in m`).
+- Coerce numeric INI values with `Integer()` on load.
+- **Only `src/AHKeyMap.ahk`** initializes globals (`:=`). Other modules declare `global VarName` but must not reinitialize.
+- Prefer in-place mutation (`.Length := 0`, `.Push(...)`) over replacing shared arrays/maps.
 ### Error handling and persistence
-- Guard file and directory access with `FileExist` / `DirExist` where appropriate.
-- Wrap `IniRead`, `IniWrite`, `Hotkey`, and fragile GUI operations in `try` blocks.
-- Prefer defensive checks on dynamic objects, e.g. `Type(x)`, `Has()`, `HasOwnProp()`.
-- User-visible failures should use localized `MsgBox(...)` text.
-- Clean up timers, hotkeys, hooks, and modal state on failure paths.
+- Guard file/dir ops with `FileExist` / `DirExist`.
+- Wrap `IniRead`, `IniWrite`, `Hotkey`, GUI ops in `try` blocks.
+- Defensive checks: `Type(x)`, `Has()`, `HasOwnProp()`.
+- User-visible failures: localized `MsgBox(L(...))`.
 - Always restore `HotIf()` after temporary scoped registration.
-- Preserve the atomic write pattern for config/state writes: write `.tmp`, then replace.
-- Config files use `[Meta]`, `[Mapping1]`, `[Mapping2]`, ... sections.
-- `_state.ini` stores `LastConfig`, `UILanguage`, and enabled-state flags.
-- Process lists are stored as `|`-delimited strings and parsed into arrays.
-### Localization and hotkey conventions
-- All user-facing UI strings must go through `L(key, args*)`.
-- Add new strings to both `BuildEnPack()` and `BuildZhPack()`.
-- Default UI language on fresh install is English (`en-US`).
-- Do not hardcode Chinese UI strings in AHK source.
-- Use modal helpers from `GuiMain.ahk` for dialogs.
-- Respect the three-path model: Path A = no modifier; Path B = intercept combo; Path C = passthrough combo with session state.
+- Clean up timers, hotkeys, hooks, and modal state on failure paths.
+- Atomic writes for config/state: write `.tmp`, then `FileMove(tmp, target, 1)`.
+- Config files: `[Meta]` + `[Mapping1]`, `[Mapping2]`, ... sections.
+- `_state.ini`: `LastConfig`, `UILanguage`, `[EnabledConfigs]` flags.
+- Process lists: `|`-delimited strings parsed into arrays.
+### Localization
+- All UI strings go through `L(key, args*)`.
+- Add new strings to **both** `BuildEnPack()` and `BuildZhPack()`.
+- Default language on fresh install: English (`en-US`).
+- Never hardcode Chinese UI strings in source.
+- Use `CreateModalGui`/`DestroyModalGui` helpers for dialogs.
+### Hotkey conventions
+- Three-path model: Path A (no modifier), Path B (intercept combo), Path C (passthrough combo with session state).
 - Keep `AllProcessCheckers` references alive for closure lifetime.
-- Empty include/exclude lists behave as global scope; priority is `include > exclude > global`.
-- Preserve Path C behavior for `RButton` gestures and wheel handling.
-## Agent workflow expectations
-- Keep edits minimal and scoped.
-- Do not touch unrelated files.
+- Process scope priority: `include > exclude > global`; empty list = global.
+- Preserve Path C RButton gesture and wheel handling behavior.
+## Common pitfalls
+- **Global reinit**: `global Foo := value` in a module silently overwrites the main entry value at `#Include` time. Use `global Foo` (declare only).
+- **HotIf leak**: Forgetting to call `HotIf()` after `HotIf(callback)` scopes all subsequent hotkeys to that callback.
+- **Map reference**: `newMap := oldMap` copies the reference. Clone with `for k, v in old → new[k] := v`.
+- **Atomic write skip**: Always write to `.tmp` then `FileMove`; direct overwrite can corrupt on crash.
+## Agent workflow
+- Keep edits minimal and scoped. Do not touch unrelated files.
 - Do not add new tooling unless requested.
 - If you encounter unexpected local changes, stop and ask.
 - After feature/fix work, ask whether docs should be updated and whether a commit is desired.
