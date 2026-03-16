@@ -22,7 +22,6 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
     OnNewConfig()
     newGui := GetGuiByTitle(L("GuiEvents.NewConfig.Title"))
     newGui["ConfigName"].Value := "SmokeConfig"
-    newGui["ProcessMode"].Value := 1
     OnNewConfigOK(newGui)
 
     AssertFileExists(CONFIG_DIR "\SmokeConfig.ini")
@@ -61,7 +60,8 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
 
     OnChangeProcess()
     changeGui := GetGuiByTitle(L("GuiEvents.ChangeScope.Title"))
-    ControlClick(L("GuiEvents.NewConfig.ScopeInclude"), "ahk_id " changeGui.Hwnd)
+    changeGui["ScopeIncludeRadio"].Value := 1
+    SetScopeEditorEnabled(changeGui["ProcName"], changeGui["ProcessPickButton"], true)
     WaitForCondition((*) => changeGui["ProcName"].Enabled, 250, 10, "Include scope editor did not enable the process list input.")
     changeGui["ProcName"].Value := "notepad.exe`ncode.exe"
     OnChangeProcessOK(changeGui)

@@ -54,21 +54,21 @@ OnNewConfig(*) {
 
     ; Three-state process mode radios
     newGui.AddGroupBox("x10 y42 w330 h175", L("GuiEvents.NewConfig.ScopeGroup"))
-    globalRadio := newGui.AddRadio("x20 y62 w310 h20 vProcessMode Checked", L("GuiEvents.NewConfig.ScopeGlobal"))
-    includeRadio := newGui.AddRadio("x20 y85 w310 h20", L("GuiEvents.NewConfig.ScopeInclude"))
-    excludeRadio := newGui.AddRadio("x20 y108 w310 h20", L("GuiEvents.NewConfig.ScopeExclude"))
+    globalRadio := newGui.AddRadio("x20 y62 w310 h20 vScopeGlobalRadio Checked", L("GuiEvents.NewConfig.ScopeGlobal"))
+    includeRadio := newGui.AddRadio("x20 y85 w310 h20 vScopeIncludeRadio", L("GuiEvents.NewConfig.ScopeInclude"))
+    excludeRadio := newGui.AddRadio("x20 y108 w310 h20 vScopeExcludeRadio", L("GuiEvents.NewConfig.ScopeExclude"))
 
     newGui.AddText("x20 y133 w60 h23 +0x200", L("GuiEvents.NewConfig.ProcessListLabel"))
     procEdit := newGui.AddEdit("x85 y133 w195 h70 vProcName Multi")
     procEdit.Enabled := false
-    procPickBtn := newGui.AddButton("x285 y133 w45 h25", L("GuiEvents.Common.ProcessPickButton"))
+    procPickBtn := newGui.AddButton("x285 y133 w45 h25 vProcessPickButton", L("GuiEvents.Common.ProcessPickButton"))
     procPickBtn.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
     procPickBtn.Enabled := false
 
     ; Enable/disable process editors when radio buttons change
-    globalRadio.OnEvent("Click", (*) => (procEdit.Enabled := false, procPickBtn.Enabled := false))
-    includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
-    excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn.Enabled := true))
+    globalRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn, false))
+    includeRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn, true))
+    excludeRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn, true))
 
     newGui.AddButton("x100 y225 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnNewConfigOK.Bind(newGui))
     newGui.AddButton("x190 y225 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", (*) => DestroyModalGui(newGui))
@@ -96,8 +96,7 @@ OnNewConfigOK(newGui, *) {
     }
 
     ; Determine process mode and process list
-    submitted := newGui.Submit(false)
-    processMode := RadioToProcessMode(submitted.ProcessMode)
+    processMode := GetSelectedScopeMode(newGui)
     procStr := ProcTextToStr(newGui["ProcName"].Value)
 
     IniWrite(configName, configFile, "Meta", "Name")
@@ -203,9 +202,9 @@ OnChangeProcess(*) {
 
     ; Three-state radio group
     changeGui.AddGroupBox("x10 y5 w370 h210", L("GuiEvents.ChangeScope.ModeGroup"))
-    globalRadio := changeGui.AddRadio("x20 y25 w350 h20 vProcessMode", L("GuiEvents.NewConfig.ScopeGlobal"))
-    includeRadio := changeGui.AddRadio("x20 y48 w350 h20", L("GuiEvents.NewConfig.ScopeInclude"))
-    excludeRadio := changeGui.AddRadio("x20 y71 w350 h20", L("GuiEvents.NewConfig.ScopeExclude"))
+    globalRadio := changeGui.AddRadio("x20 y25 w350 h20 vScopeGlobalRadio", L("GuiEvents.NewConfig.ScopeGlobal"))
+    includeRadio := changeGui.AddRadio("x20 y48 w350 h20 vScopeIncludeRadio", L("GuiEvents.NewConfig.ScopeInclude"))
+    excludeRadio := changeGui.AddRadio("x20 y71 w350 h20 vScopeExcludeRadio", L("GuiEvents.NewConfig.ScopeExclude"))
 
     ; Select radio based on current mode
     if (CurrentProcessMode = "include")
@@ -226,17 +225,16 @@ OnChangeProcess(*) {
         displayProc := StrReplace(CurrentExcludeProcess, "|", "`n")
 
     procEdit := changeGui.AddEdit("x20 y138 w290 h65 vProcName Multi", displayProc)
-    procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25", L("GuiEvents.Common.ProcessPickButton"))
+    procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25 vProcessPickButton", L("GuiEvents.Common.ProcessPickButton"))
     procPickBtn2.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
 
     ; Disable process editing when in global mode
     isGlobal := (CurrentProcessMode = "global")
-    procEdit.Enabled := !isGlobal
-    procPickBtn2.Enabled := !isGlobal
+    SetScopeEditorEnabled(procEdit, procPickBtn2, !isGlobal)
 
-    globalRadio.OnEvent("Click", (*) => (procEdit.Enabled := false, procPickBtn2.Enabled := false))
-    includeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
-    excludeRadio.OnEvent("Click", (*) => (procEdit.Enabled := true, procPickBtn2.Enabled := true))
+    globalRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn2, false))
+    includeRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn2, true))
+    excludeRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn2, true))
 
     changeGui.AddButton("x100 y222 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnChangeProcessOK.Bind(changeGui))
     changeGui.AddButton("x200 y222 w80 h28", L("GuiEvents.Common.CancelButton")).OnEvent("Click", (*) => DestroyModalGui(changeGui))
@@ -246,8 +244,7 @@ OnChangeProcess(*) {
 
 OnChangeProcessOK(changeGui, *) {
     ; Determine process mode and process list
-    submitted := changeGui.Submit(false)
-    processMode := RadioToProcessMode(submitted.ProcessMode)
+    processMode := GetSelectedScopeMode(changeGui)
     procStr := ProcTextToStr(changeGui["ProcName"].Value)
 
     global CurrentProcessMode := processMode
@@ -362,11 +359,10 @@ OnDeleteMapping(*) {
 ; Private helper functions
 ; ============================================================================
 
-; Map three-state radio value (1=global, 2=include, 3=exclude) to process mode string
-RadioToProcessMode(radioVal) {
-    if (radioVal = 2)
+GetSelectedScopeMode(scopeGui) {
+    if scopeGui["ScopeIncludeRadio"].Value
         return "include"
-    if (radioVal = 3)
+    if scopeGui["ScopeExcludeRadio"].Value
         return "exclude"
     return "global"
 }
@@ -383,6 +379,11 @@ ProcTextToStr(rawText) {
         }
     }
     return procStr
+}
+
+SetScopeEditorEnabled(procEdit, procPickBtn, isEnabled) {
+    procEdit.Enabled := isEnabled
+    procPickBtn.Enabled := isEnabled
 }
 
 DeleteCurrentConfigAndRefresh() {
