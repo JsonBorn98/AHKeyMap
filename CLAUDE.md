@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > See `AGENTS.md` for the full development spec and `docs/architecture.md` for in-depth design details.
+> See `docs/bug-backlog.md` before bug-fix work — it tracks known issues with severity and fix direction.
 
 ## Commands
 
@@ -21,12 +22,14 @@ Without arguments, `build.bat` opens a 3-option menu for local Windows users:
 - `Full build` — run `all`, then build
 - `Quick build` — skip tests and build immediately
 
-All menu paths write artifacts to `dist/`.
+CLI modes (non-interactive): `build.bat full`, `build.bat skiptests`.
+
+All menu/CLI paths write artifacts to `dist/`.
 
 For advanced or scripted build parameters, call `scripts/build.ps1` directly. It auto-locates `Ahk2Exe` and the v2 base file from Program Files, LocalAppData, or scoop.
 
 ### Lint / Tests
-No lint tooling is configured.
+No lint tooling is configured. Do not invent lint/build tooling unless asked.
 
 Automated tests:
 ```
@@ -38,21 +41,23 @@ Fast non-GUI loop:
 pwsh ./scripts/test.ps1 -Suite unit,integration
 ```
 
+Run a single test file directly:
+```
+AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
+```
+Set `AHKM_TEST_LOG_FILE=path.log` before launch for runner-style per-file logs.
+
 Current suites:
 - `unit` — pure helpers, formatting, scope logic
 - `integration` — config I/O, conflict detection, hotkey-engine state
 - `gui` — in-process GUI smoke flow
 
-Test artifacts:
-- `test-results/logs` contains one detailed log per test file
-- `test-results/summary.json` is the machine-readable run summary
-- GUI failures may also produce screenshots under `test-results/screenshots`
+Runner options: `-Ci` (keep running after failures), `-OutputDir <dir>` (custom output), `-AutoHotkeyPath <exe>` (override runtime).
 
-Manual validation is still needed for true desktop input behavior:
-- Exercise hotkey paths A/B/C against a real target app
-- Confirm Path C `RButton` gesture / wheel behavior
-- Check focus-switch timing edge cases and long-press repeat behavior
-- Confirm `_state.ini` updates and no `.tmp` files remain after save
+Test artifacts land in `test-results/`: `logs/` (one per test file), `summary.json` (machine-readable), `screenshots/` (GUI failures only). The runner deletes `test-results/` on start.
+
+### CI
+`.github/workflows/ci.yml` runs on push/PR to `master`: validates version, runs all test suites, builds. Tag-driven releases via `.github/workflows/release.yml`.
 
 ## Architecture
 
@@ -74,17 +79,29 @@ src/core/Config.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
 - `MappingEditor.ahk` — mapping edit dialog
 - `Utils.ahk` — key display conversion, process picker, auto-start
 
-**Automated testing:**
-- `scripts/test.ps1` discovers `tests/unit`, `tests/integration`, and `tests/gui`, then runs each `*.test.ahk` in its own AutoHotkey process and waits for the real exit code
-- `tests/support/TestBase.ahk` provides assertions, sandbox setup, cleanup helpers, and direct per-test log writing via `AHKM_TEST_LOG_FILE`
-- GUI failures may produce screenshots under `test-results/screenshots`
-
 **Hotkey engine paths** (`HotkeyEngine.ahk`):
 - **Path A** (`RegisterPathA`): no modifier → direct `Hotkey(source, callback)`
 - **Path B** (`RegisterPathB`): modifier + `PassthroughMod=0` → `modKey & sourceKey` (intercepts modifier)
 - **Path C** (`RegisterPathCMapping` + Path C engine): modifier + `PassthroughMod=1` → unified routing with `~modKey` passthrough and per-mod session state
 
 **Process scope priority:** `include > exclude > global`
+
+**Test isolation:** Tests set `__AHKM_TEST_MODE := true` (skips `StartApp()`) and `__AHKM_CONFIG_DIR` (redirects config to temp dir). `tests/support/TestBase.ahk` provides assertions (`AssertTrue`, `AssertFalse`, `AssertEq`, `AssertMapHas`, `AssertFileExists`), sandbox helpers (`MakeMapping`, `BuildConfigRecord`, `SeedConfigFile`, `ResetTestSandbox`), and `EnableSendCapture()` for intercepting `Send()` calls via `DispatchSendHook`.
+
+**Test authoring pattern:**
+```ahk
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+global __AHKM_TEST_MODE := true
+global __AHKM_CONFIG_DIR := A_Temp "\AHKeyMapTests\" A_ScriptName "-" A_TickCount "\configs"
+#Include "..\..\src\AHKeyMap.ahk"
+#Include "..\support\TestBase.ahk"
+RegisterTest("description", Test_FunctionName)
+RunRegisteredTests()
+Test_FunctionName() {
+    AssertEq(expected, actual)
+}
+```
 
 ## Critical Rules
 
@@ -104,9 +121,20 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
   - Use subjects like `feat: add bilingual UI`, `fix: prevent stale state keys`, `docs: rewrite README in English`.
   - If the user explicitly wants Chinese context, append it after the English subject instead of replacing it.
 - Release titles and notes should be written in English. When editing release bodies manually, keep the primary description in English; optional Chinese notes can follow if needed.
- - The repository has a tag-driven release workflow (`.github/workflows/release.yml`) that runs on `push` tags matching `v*.*.*`. After bumping the version in `src/AHKeyMap.ahk` and committing, you should:
-   - Create an annotated tag `vX.Y.Z` that matches the `APP_VERSION` and `;@Ahk2Exe-SetVersion` values.
-   - Push the tag so that GitHub Actions can build and publish the release artifacts.
+- The repository has a tag-driven release workflow (`.github/workflows/release.yml`) that runs on `push` tags matching `v*.*.*`. After bumping the version in `src/AHKeyMap.ahk` and committing, you should:
+  - Create an annotated tag `vX.Y.Z` that matches the `APP_VERSION` and `;@Ahk2Exe-SetVersion` values.
+  - Push the tag so that GitHub Actions can build and publish the release artifacts.
+
+### Config name restrictions
+Config names must not contain `\ / : * ? " < > | = [ ]` — these break INI key names or filesystem paths.
+
+## Common Pitfalls
+
+- **Global reinit**: `global Foo := value` in a module silently overwrites the main entry value at `#Include` time. Use `global Foo` (declare only).
+- **HotIf leak**: Forgetting to call `HotIf()` after `HotIf(callback)` scopes all subsequent hotkeys to that callback.
+- **Map reference**: `newMap := oldMap` copies the reference. Clone with `for k, v in old → new[k] := v`.
+- **Atomic write skip**: Always write to `.tmp` then `FileMove`; direct overwrite can corrupt on crash.
+- **Closure lifetime**: Keep `AllProcessCheckers` references alive for Path B/C closure lifetime.
 
 ## Code Style
 
@@ -118,3 +146,5 @@ Rules: new features bump **minor**, bug fixes bump **patch**. Both values must m
 - **HotIf**: always reset `HotIf()` after temporary use.
 - **GUI**: use `CreateModalGui`/`DestroyModalGui` helpers; UI strings must be localized via `L(key, args*)` with entries in `BuildEnPack()` and `BuildZhPack()`. English is the default UI language on first run; Simplified Chinese is available via the tray language selector.
 - **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`.
+- **Test functions**: `Test_DescriptiveName` (e.g. `Test_ScopesOverlap_CoversPriorityCases`).
+- **Comments**: English only in source. File headers use banner-style `; ==== ... ====` blocks.
