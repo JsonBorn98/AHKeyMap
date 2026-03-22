@@ -15,6 +15,7 @@ global PathCMappingByModSource
 global PathCModSessions
 global PathCModsUsed
 global PathCSourceKeysUsed
+global PathCWheelRoutePredicates
 global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
@@ -85,8 +86,12 @@ AddUniqueArrayValue(arr, value) {
 
 ; For Path C, only register Up hotkeys on source keys that support key-up
 SupportsKeyUpHotkey(hotkeyName) {
-    baseKey := RegExReplace(hotkeyName, "^[~*$+!#^]+", "")
-    return !RegExMatch(baseKey, "^Wheel")
+    return !IsWheelSourceKey(hotkeyName)
+}
+
+IsWheelSourceKey(sourceKey) {
+    baseKey := RegExReplace(sourceKey, "^[~*$+!#^]+", "")
+    return RegExMatch(baseKey, "^Wheel")
 }
 
 MakeActiveHotkeyRecord(checker := "", configName := "", key := "", keyUp := "") {
@@ -143,6 +148,7 @@ UnregisterAllHotkeys() {
     global PathCModSessions := Map()
     global PathCModsUsed := Map()
     global PathCSourceKeysUsed := Map()
+    global PathCWheelRoutePredicates := []
 
     ; Then disable each hotkey from the snapshot, ignoring script-level cleanup errors
     for _, info in hotkeysSnapshot {
@@ -670,7 +676,7 @@ RestoreModKeyCallback(modKey, *) {
 
 ; Register all Path C modifier/source hotkeys after config registration completes
 RegisterAllPathCHotkeys() {
-    global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors
+    global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors, PathCWheelRoutePredicates
 
     ; Modifiers: keyboard/mouse keys all use "~modKey" / "~modKey Up" to pass through events
     for modKey, _ in PathCModsUsed {
@@ -703,11 +709,23 @@ RegisterAllPathCHotkeys() {
         ; KeyDown
         hkInfo := MakeActiveHotkeyRecord("", "", sourceHotkey)
 
-        try {
-            HotIf()
-            Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
-        } catch as e {
-            HotkeyRegErrors.Push(sourceHotkey)
+        if (IsWheelSourceKey(sourceKey)) {
+            wheelRoutePredicate := PathC_ShouldRouteWheelSource.Bind(sourceKey)
+            try {
+                HotIf(wheelRoutePredicate)
+                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
+                hkInfo.checker := wheelRoutePredicate
+                PathCWheelRoutePredicates.Push(wheelRoutePredicate)
+            } catch as e {
+                HotkeyRegErrors.Push(sourceHotkey)
+            }
+        } else {
+            try {
+                HotIf()
+                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
+            } catch as e {
+                HotkeyRegErrors.Push(sourceHotkey)
+            }
         }
 
         ; KeyUp: only for source keys that support Up hotkeys
@@ -769,6 +787,31 @@ PathC_IsMappingActive(mapping) {
             return false
     }
     return true
+}
+
+; Whether a Path C wheel source should be routed by the unified engine
+PathC_ShouldRouteWheelSource(sourceKey, *) {
+    global PathCMappingByModSource, PathCModSessions
+
+    if !IsWheelSourceKey(sourceKey)
+        return false
+
+    for modKey, session in PathCModSessions {
+        if (session.state = "Idle")
+            continue
+
+        key := modKey "|" sourceKey
+        if !PathCMappingByModSource.Has(key)
+            continue
+
+        mappings := PathCMappingByModSource[key]
+        for _, mapping in mappings {
+            if PathC_IsMappingActive(mapping)
+                return true
+        }
+    }
+
+    return false
 }
 
 ; Start Path C long-press repeat for a mapping

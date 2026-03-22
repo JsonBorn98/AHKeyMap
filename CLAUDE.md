@@ -136,6 +136,11 @@ Config names must not contain `\ / : * ? " < > | = [ ]` — these break INI key 
 - **Atomic write skip**: Always write to `.tmp` then `FileMove`; direct overwrite can corrupt on crash.
 - **Closure lifetime**: Keep `AllProcessCheckers` references alive for Path B/C closure lifetime.
 
+## Test Execution Constraints
+
+- Never run `test.ps1` concurrently in the same worktree.
+- `gui` tests must run exclusively (desktop session conflict).
+
 ## Code Style
 
 - **Language**: AutoHotkey v2.0+ only. No v1 syntax.
@@ -148,3 +153,4 @@ Config names must not contain `\ / : * ? " < > | = [ ]` — these break INI key 
 - **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`.
 - **Test functions**: `Test_DescriptiveName` (e.g. `Test_ScopesOverlap_CoversPriorityCases`).
 - **Comments**: English only in source. File headers use banner-style `; ==== ... ====` blocks.
+- **Callback suffixes**: `OnConfigSelect`, `SendKeyCallback`, `HoldDownCallback`.

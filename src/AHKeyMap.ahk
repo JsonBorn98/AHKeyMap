@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.9.1
+;@Ahk2Exe-SetVersion 2.9.2
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon ..\assets\icon.ico
 
@@ -23,7 +23,7 @@ if !IsSet(__AHKM_CONFIG_DIR)
     global __AHKM_CONFIG_DIR := ""
 
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.9.1"
+global APP_VERSION := "2.9.2"
 global SCRIPT_DIR := A_ScriptDir
 global APP_ROOT := (A_IsCompiled ? SCRIPT_DIR : SCRIPT_DIR "\..")
 global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : APP_ROOT "\configs")
@@ -89,6 +89,7 @@ global PathCMappingByModSource := Map()
 global PathCModSessions := Map()
 global PathCModsUsed := Map()
 global PathCSourceKeysUsed := Map()
+global PathCWheelRoutePredicates := []
 global DispatchSendHook := ""
 
 ; Key capture globals

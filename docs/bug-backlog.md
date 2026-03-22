@@ -257,3 +257,16 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 当前观察: Path C 已重构为“显式修饰键会话 + 统一事件路由”模型：RButton 会话在本次按压期间一旦触发任何 Path C 映射，就被标记为手势会话（`isGesture = true`）。此时引擎不会拦截或模拟 RButton 物理事件，而是在松开后短延迟发送 Escape，尽量关闭可能出现的右键菜单；若本次按压未触发 Path C 映射，则整个右键过程保持原生透传。
 - 修复方向: 通过中央映射表 `PathCMappingByModSource` 与 `PathCModSessions` 会话状态机统一处理所有 Path C 映射，并把 Path C 的职责明确收敛为“优先保留修饰键原始交互”。对 RButton 来说，浏览器右键手势、网页应用右键拖拽画布等交互始终依赖真实的按下/移动/松开序列；菜单抑制仅作为手势会话结束时的 Escape 兜底，而非绝对保证。
 - 验证方式: 使用 2.5.0 及以上版本执行以下测试：启用 RButton + Wheel* Path C 映射后，浏览器右键手势与 Web 应用右键拖拽画布仍可正常工作；按住右键 + 滚轮（含多次滚动与快速滚动）后松开右键时，菜单应在常见应用中被快速关闭且不影响手势链路；开启 `HoldRepeat` 时，RButton 松开应稳定停止 repeat。少数应用仍可能出现轻微菜单闪烁，这属于 Path C 透传优先模型下的已知取舍。
+
+---
+
+## BUG-016: 路径 C 的 Wheel* 全局路由会误伤浏览器 Ctrl+滚轮缩放
+- 状态: 已修复
+- 严重度: Medium
+- 置信度: 高
+- 文件: `src/core/HotkeyEngine.ahk`
+- 影响范围: Path C 的滚轮源键路由、浏览器 / WebView 的原生 `Ctrl+Wheel` 语义
+- 复现条件: 配置 `RButton + Wheel*` 路径 C 映射后，在未按住 `RButton` 的情况下按住 `Ctrl` 滚动滚轮
+- 当前观察: Path C 现为 `Wheel*` 源键增加 `PathC_ShouldRouteWheelSource()` 路由谓词。只有存在非 `Idle` 的目标修饰键会话，且当前前台窗口至少命中一条对应的 Path C 映射时，滚轮才会被 Path C 接管；否则原生滚轮事件会直接透传，从而恢复浏览器 `Ctrl+Wheel` 缩放等原始行为。
+- 修复方向: 保留 2.5.0 引入的 Path C 会话状态机、`RButton` 透传和菜单收尾逻辑，仅收紧 `Wheel*` 的路由条件；不回退到旧版“按下修饰键时动态启停 source hotkey”的架构。
+- 验证方式: 启用 `RButton + Wheel*` Path C 映射后，浏览器 `Ctrl+Wheel` 缩放恢复；`RButton + Wheel*` 仍正常触发映射；浏览器右键手势、Web 画布右键拖拽和 `RButton + Wheel*` 后的菜单关闭行为保持正常。

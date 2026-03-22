@@ -139,6 +139,7 @@ ResetAppState() {
     global PathCModSessions
     global PathCModsUsed
     global PathCSourceKeysUsed
+    global PathCWheelRoutePredicates
     global CaptureTarget
     global CaptureGui
     global CaptureDisplayText
@@ -197,6 +198,7 @@ ResetAppState() {
     ClearMap(PathCModSessions)
     ClearMap(PathCModsUsed)
     ClearMap(PathCSourceKeysUsed)
+    PathCWheelRoutePredicates.Length := 0
 
     CaptureTarget := ""
     CaptureGui := ""
