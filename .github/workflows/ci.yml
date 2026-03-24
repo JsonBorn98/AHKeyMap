@@ -16,8 +16,12 @@ env:
   AHK2EXE_VERSION: "1.1.37.02a0a"
 
 jobs:
-  build:
+  validate:
     runs-on: windows-2025
+    timeout-minutes: 5
+    outputs:
+      app-version: ${{ steps.version.outputs.APP_VERSION }}
+      cache-key: ${{ steps.cache-key.outputs.CACHE_KEY }}
 
     steps:
       - name: Checkout
@@ -26,26 +30,84 @@ jobs:
           fetch-depth: 0
 
       - name: Validate app version
+        id: version
         shell: pwsh
         run: |
           $version = (& .\scripts\get-app-version.ps1).Trim()
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Validated version $version"
 
+      - name: Compute cache key
+        id: cache-key
+        shell: pwsh
+        run: |
+          $cacheKey = "ahk-toolchain-$env:AUTOHOTKEY_VERSION-$env:AHK2EXE_VERSION"
+          "CACHE_KEY=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Restore toolchain cache
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: .ahk-toolchain
+          key: ${{ steps.cache-key.outputs.CACHE_KEY }}
+
       - name: Download AutoHotkey toolchain
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           .\scripts\download-github-toolchain.ps1 `
             -AutoHotkeyVersion $env:AUTOHOTKEY_VERSION `
-            -Ahk2ExeVersion $env:AHK2EXE_VERSION
+            -Ahk2ExeVersion $env:AHK2EXE_VERSION `
+            -OutputRoot .ahk-toolchain
 
-      - name: Run automated tests
+      - name: Resolve toolchain paths
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          $ahk2exe = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found in toolchain cache" }
+          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found in toolchain cache" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AHK2EXE_PATH=$($ahk2exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload toolchain for downstream jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahk-toolchain
+          path: .ahk-toolchain
+          retention-days: 1
+
+  test-unit:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download toolchain
+        uses: actions/download-artifact@v4
+        with:
+          name: ahk-toolchain
+          path: .ahk-toolchain
+
+      - name: Resolve runtime path
+        id: resolve
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run unit tests
         shell: pwsh
         run: |
           .\scripts\test.ps1 `
-            -Suite all `
+            -Suite unit `
             -Ci `
             -AutoHotkeyPath $env:AHK_BASE_FILE
 
@@ -53,8 +115,111 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AHKeyMap-${{ env.APP_VERSION }}-test-results
+          name: test-results-unit
           path: test-results
+
+  test-integration:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download toolchain
+        uses: actions/download-artifact@v4
+        with:
+          name: ahk-toolchain
+          path: .ahk-toolchain
+
+      - name: Resolve runtime path
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run integration tests
+        shell: pwsh
+        run: |
+          .\scripts\test.ps1 `
+            -Suite integration `
+            -Ci `
+            -AutoHotkeyPath $env:AHK_BASE_FILE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-integration
+          path: test-results
+
+  test-gui:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download toolchain
+        uses: actions/download-artifact@v4
+        with:
+          name: ahk-toolchain
+          path: .ahk-toolchain
+
+      - name: Resolve runtime path
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run GUI tests
+        shell: pwsh
+        run: |
+          .\scripts\test.ps1 `
+            -Suite gui `
+            -Ci `
+            -AutoHotkeyPath $env:AHK_BASE_FILE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-gui
+          path: test-results
+
+  build:
+    needs: [validate, test-unit, test-integration, test-gui]
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download toolchain
+        uses: actions/download-artifact@v4
+        with:
+          name: ahk-toolchain
+          path: .ahk-toolchain
+
+      - name: Resolve toolchain paths
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          $ahk2exe = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
+          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AHK2EXE_PATH=$($ahk2exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $version = (& .\scripts\get-app-version.ps1).Trim()
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build release artifacts
         shell: pwsh
@@ -72,3 +237,54 @@ jobs:
             dist/AHKeyMap.exe
             dist/AHKeyMap-v${{ env.APP_VERSION }}-windows-x64.zip
             dist/SHA256SUMS.txt
+
+  test-summary:
+    needs: [test-unit, test-integration, test-gui]
+    if: always()
+    runs-on: windows-2025
+    timeout-minutes: 5
+
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          path: all-results
+
+      - name: Generate test summary
+        shell: pwsh
+        run: |
+          $suites = @("unit", "integration", "gui")
+          $totalPassed = 0
+          $totalFailed = 0
+          $tableRows = @()
+
+          foreach ($suite in $suites) {
+              $summaryFile = "all-results/test-results-$suite/summary.json"
+              if (Test-Path $summaryFile) {
+                  $data = Get-Content $summaryFile -Raw | ConvertFrom-Json
+                  $passed = ($data | Where-Object { $_.status -eq "passed" }).Count
+                  $failed = ($data | Where-Object { $_.status -eq "failed" }).Count
+                  $total = $passed + $failed
+                  $status = if ($failed -gt 0) { ":x: Failed" } else { ":white_check_mark: Passed" }
+                  $tableRows += "| $suite | $total | $passed | $failed | $status |"
+                  $totalPassed += $passed
+                  $totalFailed += $failed
+              } else {
+                  $tableRows += "| $suite | - | - | - | :warning: No results |"
+              }
+          }
+
+          $overallStatus = if ($totalFailed -gt 0) { ":x: **$totalFailed test(s) failed**" } else { ":white_check_mark: **All $totalPassed tests passed**" }
+
+          $summary = @"
+          ## Test Results
+
+          $overallStatus
+
+          | Suite | Total | Passed | Failed | Status |
+          |-------|-------|--------|--------|--------|
+          $($tableRows -join "`n")
+          "@
+
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

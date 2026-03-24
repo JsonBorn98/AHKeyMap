@@ -57,11 +57,13 @@ Runner options: `-Ci` (keep running after failures), `-OutputDir <dir>` (custom 
 Test artifacts land in `test-results/`: `logs/` (one per test file), `summary.json` (machine-readable), `screenshots/` (GUI failures only). The runner deletes `test-results/` on start.
 
 ### CI
-`.github/workflows/ci.yml` runs on push/PR to `master`: validates version, runs all test suites, builds. Tag-driven releases via `.github/workflows/release.yml`.
+`.github/workflows/ci.yml` runs on push/PR to `master`: validates version, then runs unit/integration/gui test suites in **parallel jobs**, then builds. Toolchain is cached via `actions/cache@v4`; each job has `timeout-minutes: 10`. A `test-summary` job posts a Markdown results table to GitHub Step Summary. Tag-driven releases via `.github/workflows/release.yml`. The release workflow validates that the tagged commit is reachable from `origin/master`.
 
 ## Architecture
 
-Single-entry AHK v2 app. `src/AHKeyMap.ahk` initializes all globals and `#Include`s 8 modules in order:
+Single-entry AHK v2 app. Runtime data (`configs/*.ini`, `configs/_state.ini`) is created on first run and gitignored.
+
+`src/AHKeyMap.ahk` initializes all globals and `#Include`s 8 modules in order. **Only `src/AHKeyMap.ahk` owns the `#Include` list** — do not add cross-includes from leaf modules.
 
 ```
 src/core/Config.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
@@ -145,12 +147,26 @@ Config names must not contain `\ / : * ? " < > | = [ ]` — these break INI key 
 
 - **Language**: AutoHotkey v2.0+ only. No v1 syntax.
 - **Naming**: `PascalCase` functions/globals, `camelCase` locals, `UPPER_SNAKE` constants.
-- **Indent**: 4 spaces, no tabs. Strings use double quotes.
-- **Data**: `Map()` for key/value, arrays for ordered lists.
+- **Indent**: 4 spaces, no tabs.
+- **Data**: `Map()` for key/value, arrays for ordered lists. Prefer in-place mutation (`.Length := 0`, `.Push(...)`) over replacing shared arrays/maps.
+- **Strings**: double quotes only. Concatenation via space or `.=`; positional format args `{1}`, `{2}`.
 - **File writes**: always use atomic pattern (write `.tmp` then `FileMove`); see `SaveConfig` and `SaveEnabledStates`.
 - **HotIf**: always reset `HotIf()` after temporary use.
 - **GUI**: use `CreateModalGui`/`DestroyModalGui` helpers; UI strings must be localized via `L(key, args*)` with entries in `BuildEnPack()` and `BuildZhPack()`. English is the default UI language on first run; Simplified Chinese is available via the tray language selector.
-- **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`.
+- **Error handling**: wrap `IniRead`, `IniWrite`, `Hotkey` in `try`; guard filesystem ops with `FileExist`/`DirExist`. Defensive checks: `Type(x)`, `Has()`, `HasOwnProp()`.
 - **Test functions**: `Test_DescriptiveName` (e.g. `Test_ScopesOverlap_CoversPriorityCases`).
 - **Comments**: English only in source. File headers use banner-style `; ==== ... ====` blocks.
 - **Callback suffixes**: `OnConfigSelect`, `SendKeyCallback`, `HoldDownCallback`.
+
+## Config / State File Format
+
+Config INI files (`configs/*.ini`): `[Meta]` section (`Name`, `ProcessMode`, `Process`, `ExcludeProcess`) + `[Mapping1]`, `[Mapping2]`, ... sections. Process lists use `|` as delimiter.
+
+State file (`configs/_state.ini`): `[State]` section (`LastConfig`, `UILanguage`) + `[EnabledConfigs]` section (per-config `1`/`0` flags).
+
+## Agent Workflow
+
+- Keep edits minimal and scoped. Do not touch unrelated files.
+- Do not add new tooling unless requested.
+- If you encounter unexpected local changes, stop and ask.
+- After feature/fix work, ask whether docs should be updated and whether a commit is desired.

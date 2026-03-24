@@ -78,11 +78,11 @@ Test_FunctionName() {
     AssertEq(expected, actual)
 }
 ```
-- Assertions: `AssertTrue`, `AssertFalse`, `AssertEq`, `AssertMapHas`, `AssertFileExists`.
+- Assertions: `AssertTrue`, `AssertFalse`, `AssertEq`, `AssertNotEq`, `AssertMapHas`, `AssertMapNotHas`, `AssertFileExists`, `AssertContains`, `AssertArrayContains`, `AssertArrayNotContains`, `AssertThrows`.
 - Helpers: `MakeMapping(...)`, `BuildConfigRecord(...)`, `SeedConfigFile(...)`, `EnableSendCapture()`.
 - Each test runs in an isolated temp config dir; `ResetTestSandbox()` runs between tests.
 ## CI / CD
-- `.github/workflows/ci.yml` — runs on push/PR to `master`; runs all test suites then builds.
+- `.github/workflows/ci.yml` — runs on push/PR to `master`; validates version, then runs unit/integration/gui suites in parallel, then builds. Toolchain is cached via `actions/cache@v4`. Each job has a `timeout-minutes: 10` guard. A `test-summary` job generates a Markdown results table in GitHub Step Summary.
 - `.github/workflows/release.yml` — triggered by `v*.*.*` tags; validates tag matches `APP_VERSION`, builds, publishes GitHub Release.
 - CI uses `scripts/download-github-toolchain.ps1` to fetch AutoHotkey v2 + Ahk2Exe.
 ## Versioning / release rules

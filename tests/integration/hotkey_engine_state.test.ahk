@@ -20,6 +20,9 @@ RegisterTest("Path C routed mappings dispatch target keys and mark the session a
 RegisterTest("Path C wheel mappings dispatch target keys and mark the session as a gesture", Test_PathC_WheelSourceDown_DispatchesMappedTarget)
 RegisterTest("Path C source key up stops repeat timers for matching mappings", Test_PathC_SourceUp_StopsActiveRepeats)
 RegisterTest("Path C gesture completion dismisses the RButton menu with Escape", Test_PathC_ModUp_DismissesContextMenuAfterGesture)
+RegisterTest("DetectHotkeyConflicts reports no conflict for disabled configs", Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs)
+RegisterTest("DetectHotkeyConflicts reports no conflict for disjoint scopes", Test_DetectHotkeyConflicts_NoConflictForDisjointScopes)
+RegisterTest("Path C ModDown resets stale session before starting new one", Test_PathC_ModDown_ResetsStaleSession)
 
 RunRegisteredTests()
 
@@ -185,4 +188,54 @@ Test_PathC_ModUp_DismissesContextMenuAfterGesture() {
 
     AssertEq("Idle", session.state)
     AssertFalse(session.isGesture)
+}
+
+Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs() {
+    ; Two configs with same hotkey, but one is disabled
+    cfg1 := BuildConfigRecord("Enabled", "global", "", "", true, [MakeMapping("", "F13", "^c")])
+    cfg2 := BuildConfigRecord("Disabled", "global", "", "", false, [MakeMapping("", "F13", "^v")])
+
+    AllConfigs.Push(cfg1)
+    AllConfigs.Push(cfg2)
+
+    DetectHotkeyConflicts()
+
+    ; Disabled config should not produce a conflict
+    AssertEq(0, HotkeyConflicts.Length)
+}
+
+Test_DetectHotkeyConflicts_NoConflictForDisjointScopes() {
+    ; Two include configs with non-overlapping process lists
+    cfg1 := BuildConfigRecord("BrowserCfg", "include", "chrome.exe", "", true, [MakeMapping("", "F13", "^c")])
+    cfg2 := BuildConfigRecord("EditorCfg", "include", "notepad.exe", "", true, [MakeMapping("", "F13", "^v")])
+
+    AllConfigs.Push(cfg1)
+    AllConfigs.Push(cfg2)
+
+    DetectHotkeyConflicts()
+
+    ; Disjoint process scopes should not conflict
+    AssertEq(0, HotkeyConflicts.Length)
+}
+
+Test_PathC_ModDown_ResetsStaleSession() {
+    ; Start a session, leaving it in non-Idle state
+    PathC_ModDownCallback("RButton")
+    session := PathC_GetSession("RButton")
+    AssertEq("HeldNoCombo", session.state)
+
+    ; Mark session as having a gesture and active sources
+    session.state := "GestureActive"
+    session.isGesture := true
+    session.activeSources["F13"] := ["Cfg|1"]
+
+    ; Second ModDown without prior Up should reset
+    PathC_ModDownCallback("RButton")
+    session := PathC_GetSession("RButton")
+
+    ; Session should be cleanly restarted
+    AssertEq("HeldNoCombo", session.state)
+    AssertFalse(session.isGesture)
+    AssertEq(0, session.activeSources.Count)
+    AssertEq(0, session.repeatMappings.Count)
 }

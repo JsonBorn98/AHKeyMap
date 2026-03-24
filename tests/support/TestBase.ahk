@@ -326,6 +326,66 @@ AssertFileExists(path, message := "") {
     }
 }
 
+AssertNotEq(unexpected, actual, message := "") {
+    unexpectedValue := FormatValue(unexpected)
+    actualValue := FormatValue(actual)
+    if (unexpectedValue = actualValue) {
+        if (message = "")
+            message := Format("Expected value to differ from {1}.", unexpectedValue)
+        Fail(message)
+    }
+}
+
+AssertContains(haystack, needle, message := "") {
+    if !InStr(haystack, needle) {
+        if (message = "")
+            message := Format("Expected '{1}' to contain '{2}'.", haystack, needle)
+        Fail(message)
+    }
+}
+
+AssertArrayContains(arr, value, message := "") {
+    for _, item in arr {
+        if (item = value)
+            return
+    }
+    if (message = "")
+        message := Format("Expected array to contain {1}.", FormatValue(value))
+    Fail(message)
+}
+
+AssertArrayNotContains(arr, value, message := "") {
+    for _, item in arr {
+        if (item = value) {
+            if (message = "")
+                message := Format("Expected array NOT to contain {1}.", FormatValue(value))
+            Fail(message)
+        }
+    }
+}
+
+AssertMapNotHas(mapObj, key, message := "") {
+    if mapObj.Has(key) {
+        if (message = "")
+            message := Format("Expected map NOT to contain key {1}.", FormatValue(key))
+        Fail(message)
+    }
+}
+
+AssertThrows(fn, message := "") {
+    didThrow := false
+    try {
+        fn.Call()
+    } catch {
+        didThrow := true
+    }
+    if !didThrow {
+        if (message = "")
+            message := "Expected function to throw an error."
+        Fail(message)
+    }
+}
+
 MakeMapping(modifierKey, sourceKey, targetKey, holdRepeat := 0, repeatDelay := 300, repeatInterval := 50, passthroughMod := 0) {
     mapping := Map()
     mapping["ModifierKey"] := modifierKey

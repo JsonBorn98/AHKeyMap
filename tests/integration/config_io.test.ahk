@@ -12,6 +12,9 @@ CurrentLangCode := "en-US"
 RegisterTest("SaveConfig writes atomically and round-trips mappings", Test_SaveConfig_WritesAtomicallyAndRoundTrips)
 RegisterTest("SaveEnabledStates preserves LastConfig and UILanguage", Test_SaveEnabledStates_PreservesStateMetadata)
 RegisterTest("LoadAllConfigs reuses the existing AllConfigs array", Test_LoadAllConfigs_ReusesExistingArrayObject)
+RegisterTest("SaveConfig with empty mappings writes Meta only", Test_SaveConfig_EmptyMappings_WritesMetaOnly)
+RegisterTest("SaveConfig with many mappings preserves order", Test_SaveConfig_ManyMappings_PreservesOrder)
+RegisterTest("LoadConfigData returns empty for nonexistent file", Test_LoadConfigData_NonexistentFile_ReturnsEmpty)
 
 RunRegisteredTests()
 
@@ -93,4 +96,90 @@ Test_LoadAllConfigs_ReusesExistingArrayObject() {
     AssertEq("Alpha", AllConfigs[1]["name"])
     AssertEq("Beta", AllConfigs[2]["name"])
     AssertFalse(AllConfigs[2]["enabled"])
+}
+
+Test_SaveConfig_EmptyMappings_WritesMetaOnly() {
+    global CurrentConfigName
+    global CurrentConfigFile
+    global CurrentProcessMode
+    global CurrentProcess
+    global CurrentProcessList
+    global CurrentExcludeProcess
+    global CurrentExcludeProcessList
+    global CurrentConfigEnabled
+    global Mappings
+    global AllConfigs
+
+    CurrentConfigName := "EmptyCfg"
+    CurrentConfigFile := CONFIG_DIR "\EmptyCfg.ini"
+    CurrentProcessMode := "global"
+    CurrentProcess := ""
+    CurrentProcessList := []
+    CurrentExcludeProcess := ""
+    CurrentExcludeProcessList := []
+    CurrentConfigEnabled := true
+    Mappings.Length := 0
+
+    AllConfigs.Push(BuildConfigRecord("EmptyCfg", "global", "", "", true, []))
+
+    SaveConfig()
+    AssertFileExists(CurrentConfigFile)
+
+    loaded := LoadConfigData("EmptyCfg")
+    AssertEq("global", loaded["processMode"])
+    AssertEq(0, loaded["mappings"].Length)
+}
+
+Test_SaveConfig_ManyMappings_PreservesOrder() {
+    global CurrentConfigName
+    global CurrentConfigFile
+    global CurrentProcessMode
+    global CurrentProcess
+    global CurrentProcessList
+    global CurrentExcludeProcess
+    global CurrentExcludeProcessList
+    global CurrentConfigEnabled
+    global Mappings
+    global AllConfigs
+
+    manyMappings := [
+        MakeMapping("", "F13", "^a"),
+        MakeMapping("", "F14", "^b"),
+        MakeMapping("CapsLock", "F15", "^c", 0, 300, 50, 0),
+        MakeMapping("RAlt", "F16", "^d", 1, 200, 40, 1),
+        MakeMapping("", "F17", "^e")
+    ]
+
+    CurrentConfigName := "ManyCfg"
+    CurrentConfigFile := CONFIG_DIR "\ManyCfg.ini"
+    CurrentProcessMode := "include"
+    CurrentProcess := "notepad.exe"
+    CurrentProcessList := ParseProcessList(CurrentProcess)
+    CurrentExcludeProcess := ""
+    CurrentExcludeProcessList := []
+    CurrentConfigEnabled := true
+    Mappings.Length := 0
+    for _, m in manyMappings
+        Mappings.Push(m)
+
+    AllConfigs.Push(BuildConfigRecord("ManyCfg", "include", "notepad.exe", "", true, manyMappings))
+
+    SaveConfig()
+
+    loaded := LoadConfigData("ManyCfg")
+    AssertEq(5, loaded["mappings"].Length)
+    AssertEq("F13", loaded["mappings"][1]["SourceKey"])
+    AssertEq("F14", loaded["mappings"][2]["SourceKey"])
+    AssertEq("F15", loaded["mappings"][3]["SourceKey"])
+    AssertEq("F16", loaded["mappings"][4]["SourceKey"])
+    AssertEq("F17", loaded["mappings"][5]["SourceKey"])
+    ; Verify specific field preservation
+    AssertEq("CapsLock", loaded["mappings"][3]["ModifierKey"])
+    AssertEq(1, loaded["mappings"][4]["HoldRepeat"])
+    AssertEq(200, loaded["mappings"][4]["RepeatDelay"])
+}
+
+Test_LoadConfigData_NonexistentFile_ReturnsEmpty() {
+    result := LoadConfigData("NoSuchConfig")
+    AssertEq("", result)
 }
