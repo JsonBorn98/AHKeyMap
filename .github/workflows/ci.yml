@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-unit
           path: test-results
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-integration
           path: test-results
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-gui
           path: test-results
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload CI artifacts
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: AHKeyMap-${{ env.APP_VERSION }}-ci
           path: |
@@ -233,7 +233,7 @@ jobs:
 
     steps:
       - name: Download all test results
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: test-results-*
           path: all-results
