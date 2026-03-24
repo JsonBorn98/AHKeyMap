@@ -57,7 +57,7 @@ Runner options: `-Ci` (keep running after failures), `-OutputDir <dir>` (custom 
 Test artifacts land in `test-results/`: `logs/` (one per test file), `summary.json` (machine-readable), `screenshots/` (GUI failures only). The runner deletes `test-results/` on start.
 
 ### CI
-`.github/workflows/ci.yml` runs on push/PR to `master`: validates version, then runs unit/integration/gui test suites in **parallel jobs**, then builds. Toolchain is cached via `actions/cache@v4`; each job has `timeout-minutes: 10`. A `test-summary` job posts a Markdown results table to GitHub Step Summary. Tag-driven releases via `.github/workflows/release.yml`. The release workflow validates that the tagged commit is reachable from `origin/master`.
+`.github/workflows/ci.yml` runs on push/PR to `master`: validates version, then runs unit/integration/gui test suites in **parallel jobs**, then builds. Toolchain is cached via `actions/cache@v5`; each job has `timeout-minutes: 10`. A `test-summary` job posts a Markdown results table to GitHub Step Summary. Tag-driven releases via `.github/workflows/release.yml`. The release workflow validates that the tagged commit is reachable from `origin/master`.
 
 ## Architecture
 
