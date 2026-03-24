@@ -14,6 +14,7 @@ permissions:
 env:
   AUTOHOTKEY_VERSION: "2.0.21"
   AHK2EXE_VERSION: "1.1.37.02a0a"
+  TOOLCHAIN_CACHE_KEY: ahk-toolchain-2.0.21-1.1.37.02a0a
 
 jobs:
   validate:
@@ -21,7 +22,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       app-version: ${{ steps.version.outputs.APP_VERSION }}
-      cache-key: ${{ steps.cache-key.outputs.CACHE_KEY }}
 
     steps:
       - name: Checkout
@@ -35,22 +35,14 @@ jobs:
         run: |
           $version = (& .\scripts\get-app-version.ps1).Trim()
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Validated version $version"
-
-      - name: Compute cache key
-        id: cache-key
-        shell: pwsh
-        run: |
-          $cacheKey = "ahk-toolchain-$env:AUTOHOTKEY_VERSION-$env:AHK2EXE_VERSION"
-          "CACHE_KEY=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Restore toolchain cache
         id: cache-restore
         uses: actions/cache@v4
         with:
           path: .ahk-toolchain
-          key: ${{ steps.cache-key.outputs.CACHE_KEY }}
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
 
       - name: Download AutoHotkey toolchain
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -63,22 +55,14 @@ jobs:
             -Ahk2ExeVersion $env:AHK2EXE_VERSION `
             -OutputRoot .ahk-toolchain
 
-      - name: Resolve toolchain paths
+      - name: Verify toolchain
         shell: pwsh
         run: |
           $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
           $ahk2exe = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter Ahk2Exe.exe | Select-Object -First 1
-          if (-not $baseFile) { throw "AutoHotkey64.exe not found in toolchain cache" }
-          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found in toolchain cache" }
-          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "AHK2EXE_PATH=$($ahk2exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Upload toolchain for downstream jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: ahk-toolchain
-          path: .ahk-toolchain
-          retention-days: 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found in toolchain" }
+          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found in toolchain" }
+          Write-Host "Toolchain OK: $($baseFile.FullName), $($ahk2exe.FullName)"
 
   test-unit:
     needs: validate
@@ -89,14 +73,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download toolchain
-        uses: actions/download-artifact@v4
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
         with:
-          name: ahk-toolchain
           path: .ahk-toolchain
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
+          fail-on-cache-miss: true
 
       - name: Resolve runtime path
-        id: resolve
         shell: pwsh
         run: |
           $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
@@ -127,11 +111,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download toolchain
-        uses: actions/download-artifact@v4
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
         with:
-          name: ahk-toolchain
           path: .ahk-toolchain
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
+          fail-on-cache-miss: true
 
       - name: Resolve runtime path
         shell: pwsh
@@ -164,11 +149,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download toolchain
-        uses: actions/download-artifact@v4
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
         with:
-          name: ahk-toolchain
           path: .ahk-toolchain
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
+          fail-on-cache-miss: true
 
       - name: Resolve runtime path
         shell: pwsh
@@ -203,11 +189,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download toolchain
-        uses: actions/download-artifact@v4
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v4
         with:
-          name: ahk-toolchain
           path: .ahk-toolchain
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
+          fail-on-cache-miss: true
 
       - name: Resolve toolchain paths
         shell: pwsh
