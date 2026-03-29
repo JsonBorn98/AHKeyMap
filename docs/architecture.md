@@ -58,7 +58,7 @@
 - 进程列表用 `|` 分隔
 
 ### 状态文件 `_state.ini`
-- `[State]`：`LastConfig`
+- `[State]`：`LastConfig`、`UILanguage`
 - `[EnabledConfigs]`：每个配置的启用标记（1/0）
 
 ## 热键引擎（三条路径）

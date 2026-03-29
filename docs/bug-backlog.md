@@ -17,41 +17,41 @@ Pending issues that are intentionally deferred. Read this file before starting n
 ---
 
 ## BUG-001: `LoadAllConfigs` 重新赋值 `AllConfigs`
-- 状态: 待修
+- 状态: 已修复
 - 严重度: Low
 - 置信度: 高
-- 文件: `src/core/Config.ahk:51`
+- 文件: `src/core/Config.ahk:51-58`
 - 影响范围: 配置加载链路、全局变量引用一致性
-- 复现条件: 调用 `LoadAllConfigs()` 时，函数内部会执行 `global AllConfigs := []`
-- 当前观察: 这违反了仓库约定的“模块只声明全局，不重新初始化”。当前启动流程中问题不明显，但如果未来有外部引用依赖原数组对象，重新赋值会让引用失效。
-- 修复方向: 改为原地清空数组，例如 `AllConfigs.Length := 0`，避免替换全局对象引用。
-- 验证方式: 启动应用；新建、复制配置后触发 `LoadAllConfigs()`；确认配置列表、启用状态和热键重载行为保持正常。
+- 复现条件: 旧实现会在 `LoadAllConfigs()` 中替换 `AllConfigs` 数组对象。
+- 当前观察: `LoadAllConfigs()` 已改为 `AllConfigs.Length := 0` 后原地重建，不再替换全局数组对象；`tests/integration/config_io.test.ahk` 已覆盖“复用同一数组对象”的回归场景。
+- 修复方向: 无需继续处理。
+- 验证方式: `AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\integration\config_io.test.ahk`；并手工确认新建、复制配置后的列表刷新与热键重载正常。
 
 ---
 
 ## BUG-002: `SaveEnabledStates` 在边界场景下可能写出不完整的 `[State]`
-- 状态: 待验证
+- 状态: 已修复
 - 严重度: Low
 - 置信度: 中
-- 文件: `src/core/Config.ahk:333`
+- 文件: `src/core/Config.ahk:340-364`
 - 影响范围: `_state.ini` 的 `LastConfig` 持久化
-- 复现条件: `_state.ini` 不存在或 `[State].LastConfig` 为空，同时触发 `SaveEnabledStates()`
-- 当前观察: 当前实现只有在 `lastConfig != ""` 时才回写 `[State]`。不过启动后 `RefreshConfigList()` 会进入 `LoadConfigToGui()`，而后者会重新写回 `LastConfig`，所以现阶段更像边界场景而非稳定用户问题。
-- 修复方向: 若后续确认需要兜底，可始终写出 `[State]` 节，或改为只重写 `[EnabledConfigs]` 节而不覆盖 `[State]`。
-- 验证方式: 删除 `configs\_state.ini` 后启动应用；不切换配置直接触发启用状态保存；重启后确认上次配置恢复逻辑是否符合预期。
+- 复现条件: 旧实现只在 `lastConfig != ""` 时回写 `[State]`，边界场景下可能丢失状态节。
+- 当前观察: `SaveEnabledStates()` 现会稳定写出 `[State].LastConfig` 与 `[State].UILanguage`，空 `LastConfig` 也不会跳过状态节；`tests/integration/config_io.test.ahk` 已覆盖状态元数据保留场景。
+- 修复方向: 无需继续处理。
+- 验证方式: `AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\integration\config_io.test.ahk`；必要时删除 `configs\_state.ini` 后手工启动应用复查恢复逻辑。
 
 ---
 
 ## BUG-003: include / exclude 进程匹配策略不一致
-- 状态: 待验证
+- 状态: 已修复
 - 严重度: Medium
 - 置信度: 中
-- 文件: `src/core/HotkeyEngine.ahk:37`, `src/core/HotkeyEngine.ahk:52`
+- 文件: `src/core/HotkeyEngine.ahk:27-76`
 - 影响范围: 进程作用域判断、冲突排查一致性
-- 复现条件: 同时使用 include 和 exclude 作用域，并在多窗口或焦点快速切换场景下测试
-- 当前观察: `CheckIncludeMatch()` 通过 `WinActive("ahk_exe ...")` 判断，`CheckExcludeMatch()` 通过 `WinGetProcessName("A")` 获取前台进程名判断。大小写本身不是问题，但两种模式采用了不同的匹配机制，行为边界不完全一致。
-- 修复方向: 统一 include / exclude 的匹配策略，避免后续维护时误判作用域差异。
-- 验证方式: 准备 include 与 exclude 两类配置；在目标进程与非目标进程之间切换焦点；确认两种模式的生效边界符合设计预期。
+- 复现条件: 旧实现曾对 include / exclude 使用不同的前台进程匹配基线。
+- 当前观察: `CheckIncludeMatch()` 与 `CheckExcludeMatch()` 现都基于 `GetForegroundProcessName()` + `ProcessListContains()`；`tests/unit/scope_logic.test.ahk` 已覆盖大小写归一化与作用域重叠逻辑。
+- 修复方向: 无需继续处理。
+- 验证方式: `AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk`；并在目标/非目标进程间切焦手工确认生效边界。
 
 ---
 
@@ -74,21 +74,21 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 文件: `src/core/KeyCapture.ahk:233`
 - 影响范围: 按键捕获实时显示、复杂组合修正体验
 - 复现条件: 按下 3 键后松开其中 1 键，再补按另一个键，使总键数保持不变
-- 当前观察: 代码只在 `totalPressed >= CaptureKeys.Length` 时更新最大组合。理论上如果组合内容变化但总数不变，旧组合可能被保留下来。不过“全部松开后确认”的交互降低了实际影响。
+- 当前观察: 当前代码仍只在 `totalPressed >= CaptureKeys.Length` 时更新最大组合。理论上如果组合内容变化但总数不变，旧组合仍可能被保留下来；仓库内暂无针对该边界的直接回归测试。不过“全部松开后确认”的交互降低了实际影响。
 - 修复方向: 如需优化体验，可在“数量相等但组合内容不同”时也刷新 `CaptureKeys`。
 - 验证方式: 在编辑映射窗口中重复输入多组复杂组合；确认最终捕获结果是否总能反映用户最后保持按住的组合。
 
 ---
 
-## BUG-006: `ProcessPickerOpen` 在确认路径上重复置 `false`
-- 状态: 待修
+## BUG-006: `ProcessPickerOpen` 的清理职责分散在确认/关闭两条路径
+- 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 高
-- 文件: `src/shared/Utils.ahk:109`, `src/shared/Utils.ahk:161`
+- 文件: `src/shared/Utils.ahk:102-106`, `src/shared/Utils.ahk:133-186`
 - 影响范围: 代码可读性、进程选择器状态维护
-- 复现条件: 阅读 `OnProcessPickOK()` 实现
-- 当前观察: 函数开头和结束前各有一次 `global ProcessPickerOpen := false`。虽然不会造成功能错误，但属于冗余状态写入，后续阅读时容易误判是否存在分支差异。
-- 修复方向: 删除收尾处的重复赋值，保留一次明确的状态复位。
+- 复现条件: 阅读 `OnProcessPickOK()` 与 `CloseProcessPicker()` 的状态清理逻辑。
+- 当前观察: 当前实现把确认路径的状态复位放在 `OnProcessPickOK()`，把取消/窗口关闭路径的状态复位放在 `CloseProcessPicker()`。`Gui.Destroy()` 不会额外触发 `Close` 事件，因此这不是“同一路径重复置 `false`”的问题，更接近分支职责拆分。
+- 修复方向: 无需作为 bug 继续跟踪；若后续重构进程选择器，可顺手把状态清理收拢到单一出口。
 - 验证方式: 打开并关闭进程选择器；确认可重复打开、取消、确认，且不会出现“选择器已打开”的残留状态。
 
 ---
@@ -131,15 +131,15 @@ Pending issues that are intentionally deferred. Read this file before starting n
 - 验证方式: 已手工验证裸按、按住无关修饰键、按住目标修饰键，以及 `RButton` 手势场景。
 ---
 ## BUG-010: 路径 B 修饰键恢复对鼠标修饰键可能产生副作用
-- 状态: 待修
+- 状态: 已修复
 - 严重度: Medium
 - 置信度: 高
-- 文件: `src/core/HotkeyEngine.ahk:667`
+- 文件: `src/core/HotkeyEngine.ahk:662-670`
 - 影响范围: 路径 B、鼠标键作为修饰键时的恢复逻辑
-- 复现条件: 将 `MButton`、`XButton1` 等鼠标键作为路径 B 修饰键，并单独按下该修饰键
-- 当前观察: `RestoreModKeyCallback()` 无条件执行 `Send(KeyToSendFormat(modKey))`。对鼠标键来说，这会变成一次模拟点击，不一定符合“恢复原始功能”的直觉。
-- 修复方向: 对鼠标键单独分支处理，必要时跳过恢复发送，或改为更贴近原生行为的实现。
-- 验证方式: 分别以键盘修饰键和鼠标修饰键测试路径 B；确认单独按修饰键时不会产生多余点击或错误输入。
+- 复现条件: 旧实现会对所有修饰键执行恢复发送，鼠标修饰键可能被错误模拟为点击。
+- 当前观察: `RestoreModKeyCallback()` 现已通过 `ShouldRestoreModifierOnSoloPress()` 跳过鼠标修饰键；`tests/integration/hotkey_pathAB.test.ahk` 已覆盖 `RButton`、`MButton`、`XButton1`、`XButton2` 的回归场景。
+- 修复方向: 无需继续处理。
+- 验证方式: `AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\integration\hotkey_pathAB.test.ahk`；并手工确认键盘修饰键仍可正常恢复，鼠标修饰键不会产生额外点击。
 
 ---
 
@@ -183,15 +183,15 @@ Pending issues that are intentionally deferred. Read this file before starting n
 ---
 
 ## BUG-014: 模态窗口 `Close` 闭包持有 GUI 引用的 GC 风险缺少证据
-- 状态: 待验证
+- 状态: 已确认非问题
 - 严重度: Low
 - 置信度: 低
 - 文件: `src/ui/GuiMain.ahk:133`
 - 影响范围: 模态窗口销毁、GUI 对象回收
 - 复现条件: 高频创建和销毁模态窗口，并观察内存或句柄变化
-- 当前观察: 目前只有“闭包捕获 `modalGui` 可能延迟 GC”的理论推断，没有观察到泄漏或异常销毁行为。
-- 修复方向: 暂不建议基于猜测修改；如果后续出现句柄增长或内存异常，再定向处理。
-- 验证方式: 打开和关闭多个模态窗口；关注是否出现窗口无法销毁、句柄持续增长或明显资源泄漏。
+- 当前观察: 目前没有观察到泄漏或异常销毁行为；结合 AHK GUI 事件语义，窗口销毁后事件回调会一并释放，现有“闭包捕获 `modalGui` 导致持续 GC 风险”的推断缺少证据支持。
+- 修复方向: 无需作为 bug 继续跟踪；若后续出现句柄增长或内存异常，再单独立项。
+- 验证方式: 打开和关闭多个模态窗口；确认未出现窗口无法销毁、句柄持续增长或明显资源泄漏。
 
 ---
 
