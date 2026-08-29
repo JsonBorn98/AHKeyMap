@@ -20,8 +20,6 @@ jobs:
   validate:
     runs-on: windows-2025
     timeout-minutes: 5
-    outputs:
-      app-version: ${{ steps.version.outputs.APP_VERSION }}
 
     steps:
       - name: Checkout
