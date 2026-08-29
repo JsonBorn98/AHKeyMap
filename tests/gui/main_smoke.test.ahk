@@ -60,9 +60,13 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
 
     OnChangeProcess()
     changeGui := GetGuiByTitle(L("GuiEvents.ChangeScope.Title"))
-    changeGui["ScopeIncludeRadio"].Value := 1
-    SetScopeEditorEnabled(changeGui["ProcName"], changeGui["ProcessPickButton"], true)
+    ; The dialog opens in global mode with the process editor disabled. Setting .Value
+    ; does not raise Click, so send BM_CLICK (0xF5) to check the radio and fire the
+    ; real Click handler; actual mouse clicks are flaky in CI.
+    AssertFalse(changeGui["ProcName"].Enabled, "Process editor should start disabled in global mode.")
+    SendMessage(0xF5, 0, 0, changeGui["ScopeIncludeRadio"].Hwnd)
     WaitForCondition((*) => changeGui["ProcName"].Enabled, 250, 10, "Include scope editor did not enable the process list input.")
+    AssertTrue(changeGui["ScopeIncludeRadio"].Value, "Include radio should be checked after BM_CLICK.")
     changeGui["ProcName"].Value := "notepad.exe`ncode.exe"
     OnChangeProcessOK(changeGui)
 
