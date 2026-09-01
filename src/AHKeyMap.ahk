@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.9.8
+;@Ahk2Exe-SetVersion 2.9.9
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon ..\assets\icon.ico
 
@@ -23,7 +23,7 @@ if !IsSet(__AHKM_CONFIG_DIR)
     global __AHKM_CONFIG_DIR := ""
 
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.9.8"
+global APP_VERSION := "2.9.9"
 global SCRIPT_DIR := A_ScriptDir
 global APP_ROOT := (A_IsCompiled ? SCRIPT_DIR : SCRIPT_DIR "\..")
 global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : APP_ROOT "\configs")
@@ -204,7 +204,12 @@ StartApp() {
     ; render seam with the reload result
     LastReloadResult := ReloadAllHotkeys()
 
-    ; Select and render the last used config (render-only, no reload)
+    ; Select and render the last used config (render-only, no reload).
+    ; When the recorded name no longer exists on disk, fall back to the
+    ; first config so the store and the dropdown stay consistent — this is
+    ; a store-side decision because render functions never mutate the store.
+    if (ConfigStore.Instance.FindIndex(lastConfig) = 0 && AllConfigs.Length > 0)
+        lastConfig := AllConfigs[1]["name"]
     ConfigStore.Instance.Select(lastConfig)
 
     ; Show main window

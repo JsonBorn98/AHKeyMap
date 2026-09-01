@@ -21,6 +21,7 @@ RegisterTest("FormatProcessDisplay uses localized summaries", Test_FormatProcess
 RegisterTest("ConfigStore notifies OnChanged with the reload result through the chokepoint", Test_ConfigStore_OnChanged_ReceivesReloadResult)
 RegisterTest("ConfigStore Select notifies render-only without a reload result", Test_ConfigStore_Select_NotifiesRenderOnly)
 RegisterTest("ConfigStore stays silent headless when nothing is registered", Test_ConfigStore_Headless_NoRegistrationNeeded)
+RegisterTest("ConfigStore Select never re-enters a safe OnChanged subscriber", Test_ConfigStore_Select_NoRecursionIntoSubscriber)
 
 RunRegisteredTests()
 
@@ -189,4 +190,53 @@ Test_ConfigStore_Headless_NoRegistrationNeeded() {
     AssertEq(1, store.SelectedMappings().Length)
     AssertEq("F13", ReadConfigValue("HeadlessCfg", "Mapping1", "SourceKey"))
     AssertEq("1", ReadStateValue("EnabledConfigs", "HeadlessCfg"))
+}
+
+; Pins the render-seam no-recursion invariant headlessly: a subscriber must
+; not be re-entered by Select (GUI RenderFromState reads state and never
+; mutates the store; this callback simulates that by only reading). Each
+; Select call must notify exactly once, including via CreateConfig/CopyConfig
+; and the delete re-select, otherwise the GUI would recurse
+; Select -> NotifyChanged -> Render -> Select.
+Test_ConfigStore_Select_NoRecursionIntoSubscriber() {
+    store := ConfigStore.Instance
+    notifications := 0
+
+    SeedConfigFile("RecursionCfg", "global", "", "", [], 1)
+    SeedConfigFile("RecursionOther", "global", "", "", [], 1)
+    LoadAllConfigs()
+
+    store.SetOnChanged((reloadResult) => notifications++)
+
+    ; Same-name select still notifies exactly once (Select is not idempotent-
+    ; silent), and re-selecting an existing name must not loop
+    store.Select("RecursionCfg")
+    AssertEq(1, notifications)
+    store.Select("RecursionCfg")
+    AssertEq(2, notifications)
+
+    ; Selecting a name that is not on disk notifies once and clears selection
+    store.Select("MissingConfig")
+    AssertEq(3, notifications)
+    AssertEq("", store.SelectedName)
+
+    ; File-level mutation: one chokepoint notification + one Select notification
+    notifications := 0
+    store.CreateConfig("RecursionCreated", "global", "")
+    AssertEq(2, notifications)
+    AssertEq("RecursionCreated", store.SelectedName)
+
+    ; Copy: chokepoint + Select again (exactly two notifications)
+    notifications := 0
+    store.CopyConfig("RecursionCopied")
+    AssertEq(2, notifications)
+    AssertEq("RecursionCopied", store.SelectedName)
+
+    ; Delete: chokepoint notification + one re-select notification
+    notifications := 0
+    store.DeleteConfig()
+    AssertEq(2, notifications)
+    AssertNotEq("", store.SelectedName, "Deleting with configs remaining should re-select a valid config.")
+
+    store.SetOnChanged("")
 }

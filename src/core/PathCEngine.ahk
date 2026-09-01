@@ -279,24 +279,24 @@ class PathCEngine {
                 continue
 
             mappings := this.mappingByModSource[key]
-
-            for _, mapping in mappings {
-                if !this.IsMappingActive(mapping)
+            ; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
+            for _, m in mappings {
+                if !this.IsMappingActive(m)
                     continue
 
                 ; Mark this session as a gesture session
                 session.state := PathCEngine.STATE_GESTURE_ACTIVE
                 session.isGesture := true
 
-                if (mapping.holdRepeat) {
-                    this.StartMappingRepeat(mapping, modKey, sourceKey)
-                    session.repeatMappings[mapping.id] := true
+                if (m.holdRepeat) {
+                    this.StartMappingRepeat(m, modKey, sourceKey)
+                    session.repeatMappings[m.id] := true
 
                     if !session.activeSources.Has(sourceKey)
                         session.activeSources[sourceKey] := []
-                    session.activeSources[sourceKey].Push(mapping.id)
+                    session.activeSources[sourceKey].Push(m.id)
                 } else {
-                    DispatchSend(KeyToSendFormat(mapping.targetKey))
+                    DispatchSend(KeyToSendFormat(m.targetKey))
                 }
 
                 handled := true

@@ -142,7 +142,15 @@ RenderFromState(reloadResult) {
 }
 
 ; Refresh config dropdown from the config list on disk (no hotkey reload)
-; Keeps the store selection in sync with what the dropdown shows
+; Invariant: render never mutates the store. This paints the store's
+; selection into the dropdown and writes nothing back — adopting the
+; dropdown item here would re-enter Select -> NotifyChanged ->
+; RenderFromState and recurse forever. Choose() does not fire the Change
+; event (probe-verified during the ticket 04 refactor), so re-selecting a
+; dropdown item here cannot re-enter OnConfigSelect either. When the store
+; has no selection, item 1 is shown for display only; the store-side
+; callers (StartApp fallback, DeleteConfig re-select) keep the selection
+; valid whenever configs exist.
 RefreshConfigList() {
     configs := GetConfigList()
     items := []
@@ -161,10 +169,6 @@ RefreshConfigList() {
             ConfigDDL.Choose(selectIdx)
         else
             ConfigDDL.Choose(1)
-        ; Adopt the dropdown item as the selection (Choose does not fire Change)
-        ConfigStore.Instance.Select(configs[ConfigDDL.Value])
-    } else {
-        ConfigStore.Instance.Select("")
     }
 }
 
@@ -248,19 +252,20 @@ BuildStatusSummary(allConfigs, reloadResult) {
 ; Each row: {idx, modifier, source, target, hold, mode, delay, interval}
 BuildMappingRows(mappings) {
     rows := []
-    for idx, mapping in mappings {
-        holdText := mapping["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
-        modDisplay := mapping["ModifierKey"] != "" ? KeyToDisplay(mapping["ModifierKey"]) : ""
+    ; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
+    for idx, m in mappings {
+        holdText := m["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
+        modDisplay := m["ModifierKey"] != "" ? KeyToDisplay(m["ModifierKey"]) : ""
         ptText := ""
-        if (mapping["ModifierKey"] != "")
-            ptText := mapping["PassthroughMod"] ? L("Config.Mapping.ModMode.Pass") : L("Config.Mapping.ModMode.Block")
-        delayText := mapping["HoldRepeat"] ? mapping["RepeatDelay"] : ""
-        intervalText := mapping["HoldRepeat"] ? mapping["RepeatInterval"] : ""
+        if (m["ModifierKey"] != "")
+            ptText := m["PassthroughMod"] ? L("Config.Mapping.ModMode.Pass") : L("Config.Mapping.ModMode.Block")
+        delayText := m["HoldRepeat"] ? m["RepeatDelay"] : ""
+        intervalText := m["HoldRepeat"] ? m["RepeatInterval"] : ""
         rows.Push({
             idx: idx,
             modifier: modDisplay,
-            source: KeyToDisplay(mapping["SourceKey"]),
-            target: KeyToDisplay(mapping["TargetKey"]),
+            source: KeyToDisplay(m["SourceKey"]),
+            target: KeyToDisplay(m["TargetKey"]),
             hold: holdText,
             mode: ptText,
             delay: delayText,

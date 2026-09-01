@@ -44,7 +44,7 @@
 - `RenderFromState(reloadResult)`（`src/ui/GuiMain.ahk`）是唯一渲染入口：
   - 仅在主窗口存在时运行（无头环境直接返回，不再依赖空字符串守卫）。
   - 收到 `ReloadAllHotkeys()` 的返回值 `{conflicts, regErrors}` 时存入 ui 侧全局 `LastReloadResult`；收到 `""`（纯渲染事件，如切换选中或切换语言）时沿用上次结果。
-  - 依次刷新配置下拉（`RefreshConfigList`，将下拉当前项同步回 store 选中态）、作用域控件（`RefreshScopeControls`）、映射列表（`RefreshMappingLV`）与状态栏（`UpdateStatusText`）。
+  - 依次刷新配置下拉（`RefreshConfigList`，只读 store 选中态来点亮下拉项；渲染永不回写 store，否则会形成 Select→Notify→Render 的无限递归）、作用域控件（`RefreshScopeControls`）、映射列表（`RefreshMappingLV`）与状态栏（`UpdateStatusText`）。删除配置后改选首个剩余配置、启动时 `LastConfig` 不在磁盘则回退首个配置，这两个决策都在 store 侧完成（`DeleteConfig` / `StartApp`）。
 - 视图模型构造器是纯函数，单元测试直接覆盖（`tests/unit/view_models.test.ahk`）：
   - `BuildStatusSummary(allConfigs, reloadResult)` → `{text, hasWarning}`；`StatusHasWarning` 由状态栏渲染写入，仅供 ui 悬停处理读取。
   - `BuildMappingRows(mappings)` → ListView 行数据；`BuildStatusDetails(reloadResult)` → 详情弹窗文本（`OnStatusTextClick` 读取 `LastReloadResult`）。

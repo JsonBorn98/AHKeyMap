@@ -117,6 +117,8 @@ BuildEnPack() {
     pack["Config.SaveError.WriteTemp"] := "Failed to save config: {1}`nFile: {2}"
     pack["Config.SaveError.Replace"] := "Failed to save config (replace stage): {1}`nFile: {2}"
     pack["Config.SaveEnabledStatesError"] := "Failed to save enabled states: {1}"
+    pack["Config.CreateError"] := "Failed to create config: {1}`nFile: {2}"
+    pack["Config.CopyError"] := "Failed to copy config: {1}`nFile: {2}"
 
     pack["Config.Mapping.HoldYes"] := "Yes"
     pack["Config.Mapping.HoldNo"] := "No"
@@ -255,6 +257,8 @@ BuildZhPack() {
     pack["Config.SaveError.WriteTemp"] := "保存配置失败：{1}`n文件：{2}"
     pack["Config.SaveError.Replace"] := "保存配置失败（替换阶段）：{1}`n文件：{2}"
     pack["Config.SaveEnabledStatesError"] := "保存启用状态失败：{1}"
+    pack["Config.CreateError"] := "创建配置失败：{1}`n文件：{2}"
+    pack["Config.CopyError"] := "复制配置失败：{1}`n文件：{2}"
 
     pack["Config.Mapping.HoldYes"] := "是"
     pack["Config.Mapping.HoldNo"] := "否"

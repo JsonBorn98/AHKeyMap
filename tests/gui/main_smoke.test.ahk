@@ -83,10 +83,14 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
     OnToggleEnabled(EnabledCB)
     AssertTrue(store.Selected()["enabled"])
     AssertEq("1", ReadStateValue("EnabledConfigs", "SmokeConfig"))
-    ; Note: this sandbox cannot deliver the physical key state that Path A/B/C
-    ; registration depends on, so ActiveHotkeys stays 0 here (the baseline test
-    ; had the same limitation; hotkey registration is covered by integration
-    ; tests and manual verification).
+    ; The only mapping is Path C (RAlt+F13 passthrough): since ticket 01 its
+    ; registration records live in PathCEngine.registrations, not the
+    ; ActiveHotkeys global (Path A/B records only) — the bookkeeping moved,
+    ; registration itself still runs through the store chokepoint. Assert its
+    ; health via the reload result the render seam received: no registration
+    ; errors means the engine registered the routing hotkeys cleanly.
+    AssertTrue(IsObject(LastReloadResult), "RenderFromState should have stored the chokepoint's reload result.")
+    AssertEq(0, LastReloadResult.regErrors.Length)
 
     ; OnDeleteConfig shows a blocking confirmation MsgBox; arm an in-script
     ; timer to click its Yes button (Button1) shortly after it opens, because
