@@ -135,11 +135,6 @@ ResetAppState() {
     global AllProcessCheckers
     global HotkeyConflicts
     global HotkeyRegErrors
-    global PathCMappingByModSource
-    global PathCModSessions
-    global PathCModsUsed
-    global PathCSourceKeysUsed
-    global PathCWheelRoutePredicates
     global CaptureTarget
     global CaptureGui
     global CaptureDisplayText
@@ -195,11 +190,6 @@ ResetAppState() {
     AllProcessCheckers.Length := 0
     HotkeyConflicts.Length := 0
     HotkeyRegErrors.Length := 0
-    ClearMap(PathCMappingByModSource)
-    ClearMap(PathCModSessions)
-    ClearMap(PathCModsUsed)
-    ClearMap(PathCSourceKeysUsed)
-    PathCWheelRoutePredicates.Length := 0
 
     CaptureTarget := ""
     CaptureGui := ""

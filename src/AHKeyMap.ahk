@@ -85,11 +85,6 @@ global InterceptModKeys := Map()
 global AllProcessCheckers := []
 global HotkeyConflicts := []
 global HotkeyRegErrors := []
-global PathCMappingByModSource := Map()
-global PathCModSessions := Map()
-global PathCModsUsed := Map()
-global PathCSourceKeysUsed := Map()
-global PathCWheelRoutePredicates := []
 global DispatchSendHook := ""
 global ForegroundProcessHook := ""
 
@@ -113,6 +108,7 @@ global ProcessPickerGui := ""
 #Include "core/Config.ahk"
 #Include "shared/Utils.ahk"
 #Include "core/Localization.ahk"
+#Include "core/PathCEngine.ahk"
 #Include "core/HotkeyEngine.ahk"
 #Include "core/KeyCapture.ahk"
 #Include "ui/GuiMain.ahk"
