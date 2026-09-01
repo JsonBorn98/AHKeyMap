@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Sequencing: land after [02](02-collapse-config-working-copy.md) (both touch `MappingEditor.ahk`); independent of 01/03/04. Patch bump from whatever landed last (`2.9.7` if landed in sequence).
+Depends on: [02](02-collapse-config-working-copy.md) (soft — both edit `MappingEditor.ahk`, in different functions). Otherwise independent; may run parallel to the 01→02 spine if conflicts on the shared file are acceptable. Patch bump from whatever landed last (`2.9.7` if landed in sequence).
 
 ## Problem
 

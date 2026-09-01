@@ -10,11 +10,17 @@ A deep module in this repo is an AHK v2 `class` in its own file under `src/core/
 
 ## Tickets
 
-- `issues/01-deepen-path-c-engine.md` — land first. Touches `ReloadAllHotkeys` skeleton.
-- `issues/02-collapse-config-working-copy.md` — land after 01 (shares the `ReloadAllHotkeys` seam).
-- `issues/03-one-mapping-schema.md` — land after 01+02 (all three touch `HotkeyEngine.ahk` and the test base).
-- `issues/04-rendering-seam.md` — land after 01-03 (render reads store state; engine output becomes return values).
-- `issues/05-keycapture-completion-adapter.md` — land after 02 (both touch `MappingEditor.ahk`); otherwise independent.
-- `issues/06-foreground-process-seam.md` — zero dependencies; land any time.
+- `issues/01-deepen-path-c-engine.md` — Depends on: none. Land first.
+- `issues/02-collapse-config-working-copy.md` — Depends on: 01 (soft).
+- `issues/03-one-mapping-schema.md` — Depends on: 01 (soft), 02 (soft).
+- `issues/04-rendering-seam.md` — Depends on: 01 (hard), 02 (hard), 03 (soft).
+- `issues/05-keycapture-completion-adapter.md` — Depends on: 02 (soft).
+- `issues/06-foreground-process-seam.md` — Depends on: none.
+
+Each ticket carries a `Depends on:` line with the strength and reason — those edges are the task graph.
+
+## Parallelism
+
+Every ticket bumps the same two version lines in `src/AHKeyMap.ahk`, and several edit the same globals block and the test base's state reset — parallel branches are guaranteed small merge conflicts there regardless of the logical graph. Recommended execution: serial spine **01 → 02 → 03 → 04**, with **06** (and cautiously **05**) as a parallel side track. If run via `/implement-spec`, the Depends-on edges above define the frontier; treat soft edges as ordering preferences, not blockers.
 
 Each ticket: single commit, patch version bump (`;@Ahk2Exe-SetVersion` + `APP_VERSION`), suites `unit,integration` then `all` green, plus the manual verification steps listed in the ticket.

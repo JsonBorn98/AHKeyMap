@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Depends on: none — land first; tickets 03/04 rewire the shapes this one creates, so every other ticket assumes it exists.
+
 ## Problem
 
 Path C (passthrough modifier combos) is a shallow module: its interface is five globals (`PathCMappingByModSource`, `PathCModSessions`, `PathCModsUsed`, `PathCSourceKeysUsed`, `PathCWheelRoutePredicates`), a `HoldTimers` map shared with Path A/B, `RepeatTimerCallback`'s optional `modKey` mode flag, string state literals scattered across six callbacks, and an ordering invariant (`RegisterPathCMapping` must complete before `RegisterAllPathCHotkeys`) that lives nowhere. Four regressions each leaked a different piece of this interface: BUG-004 (long-press stop), BUG-009/013 (raw-key fallback re-entrancy), BUG-015 (RButton menu dismissal), BUG-016 (wheel routing). Tests reach past the interface and hand-craft session objects.

@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Sequencing: zero dependencies; land any time (smallest ticket). Patch bump from whatever landed last (`2.9.8` if landed in sequence).
+Depends on: none — land any time, including in parallel with any other ticket (the only collisions are the two version lines and the globals block in `AHKeyMap.ahk`, trivially resolved). Patch bump from whatever landed last (`2.9.8` if landed in sequence).
 
 ## Problem
 

@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Sequencing: land after [01](01-deepen-path-c-engine.md) and [02](02-collapse-config-working-copy.md) — all three touch `HotkeyEngine.ahk` and the test base; landing in order avoids three-way churn.
+Depends on: [01](01-deepen-path-c-engine.md) (soft — the Path C guard this ticket rewires moves into the engine in 01), [02](02-collapse-config-working-copy.md) (soft — the editor's mapping-construction call changes shape in 02). The content adapts to either shape; landing last avoids editing intermediate code twice. All three tickets also touch `HotkeyEngine.ahk` and the test base.
 
 ## Problem
 

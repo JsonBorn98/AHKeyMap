@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Sequencing: land after [01](01-deepen-path-c-engine.md) and [02](02-collapse-config-working-copy.md) (hard dependency: render reads store state; the chokepoint lives in the store), and after [03](03-one-mapping-schema.md) to keep churn sequential.
+Depends on: [01](01-deepen-path-c-engine.md) (**hard** — the design requires `PathCEngine.Commit()` to return registration errors), [02](02-collapse-config-working-copy.md) (**hard** — rendering triggers through `ConfigStore.OnChanged` and reads store state), [03](03-one-mapping-schema.md) (soft — sequential churn only). Without 01+02 this ticket's interfaces have nothing to attach to.
 
 ## Problem
 
