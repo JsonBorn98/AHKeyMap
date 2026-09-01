@@ -1,6 +1,6 @@
 # 05 — KeyCapture completion adapter
 
-Status: ready-for-agent
+Status: done — landed in PR #2 (commit 6151882)
 
 Depends on: [02](02-collapse-config-working-copy.md) (soft — both edit `MappingEditor.ahk`, in different functions). Otherwise independent; may run parallel to the 01→02 spine if conflicts on the shared file are acceptable. Patch bump from whatever landed last (`2.9.7` if landed in sequence).
 

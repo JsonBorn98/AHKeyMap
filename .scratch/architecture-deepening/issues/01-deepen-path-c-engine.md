@@ -1,6 +1,6 @@
 # 01 — Deepen the Path C engine
 
-Status: ready-for-agent
+Status: done — landed in PR #2 (commit 9087bc9)
 
 Depends on: none — land first; tickets 03/04 rewire the shapes this one creates, so every other ticket assumes it exists.
 

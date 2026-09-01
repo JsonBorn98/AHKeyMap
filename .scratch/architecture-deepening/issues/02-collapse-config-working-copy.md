@@ -1,6 +1,6 @@
 # 02 — Collapse the config working copy into a config store
 
-Status: ready-for-agent
+Status: done — landed in PR #2 (commit e229f50)
 
 Depends on: [01](01-deepen-path-c-engine.md) (soft — both edit the HotkeyEngine skeleton, the `AHKeyMap.ahk` globals block, and the test base's state reset; landing 01 first avoids rebasing onto its surgery). Logically this ticket could stand alone; the dependency is churn-avoidance.
 

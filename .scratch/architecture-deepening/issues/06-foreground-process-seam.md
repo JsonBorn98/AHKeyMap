@@ -1,6 +1,6 @@
 # 06 — Inject the foreground-process query
 
-Status: ready-for-agent
+Status: done — landed in PR #2 (commit 4e16b2e)
 
 Depends on: none — land any time, including in parallel with any other ticket (the only collisions are the two version lines and the globals block in `AHKeyMap.ahk`, trivially resolved). Patch bump from whatever landed last (`2.9.8` if landed in sequence).
 

@@ -1,6 +1,6 @@
 # 04 — Give rendering a seam
 
-Status: ready-for-agent
+Status: done — landed in PR #2 (commit 4f592cc)
 
 Depends on: [01](01-deepen-path-c-engine.md) (**hard** — the design requires `PathCEngine.Commit()` to return registration errors), [02](02-collapse-config-working-copy.md) (**hard** — rendering triggers through `ConfigStore.OnChanged` and reads store state), [03](03-one-mapping-schema.md) (soft — sequential churn only). Without 01+02 this ticket's interfaces have nothing to attach to.
 
