@@ -127,6 +127,7 @@ ResetAppState() {
     global HotkeyConflicts
     global HotkeyRegErrors
     global CaptureTarget
+    global CaptureOnCaptured
     global CaptureGui
     global CaptureDisplayText
     global CaptureTimer
@@ -175,6 +176,7 @@ ResetAppState() {
     HotkeyRegErrors.Length := 0
 
     CaptureTarget := ""
+    CaptureOnCaptured := ""
     CaptureGui := ""
     CaptureDisplayText := ""
     CaptureTimer := ""

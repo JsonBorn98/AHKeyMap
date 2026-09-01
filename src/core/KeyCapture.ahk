@@ -6,6 +6,7 @@
 ; Declare globals shared across modules
 global IsCapturing
 global CaptureTarget
+global CaptureOnCaptured
 global CaptureGui
 global CaptureDisplayText
 global CaptureTimer
@@ -14,12 +15,6 @@ global CaptureHadKeys
 global CaptureMouseKeys
 global CAPTURE_START_DELAY
 global CAPTURE_POLL_INTERVAL
-
-; Editor dialog control references (injected from MappingEditor module)
-global EditModifierEdit
-global EditSourceEdit
-global EditTargetEdit
-global EditPassthroughCB
 
 ; ============================================================================
 ; Key capture (confirm on release flow)
@@ -112,23 +107,13 @@ ModifierToDisplayName(keyName) {
     return keyName
 }
 
-OnCaptureModifier(*) {
-    global CaptureTarget := "modifier"
-    StartCapture()
-}
-
-OnCaptureSource(*) {
-    global CaptureTarget := "source"
-    StartCapture()
-}
-
-OnCaptureTarget(*) {
-    global CaptureTarget := "target"
-    StartCapture()
-}
-
-StartCapture() {
+; Start a capture session for the given target ("modifier"/"source"/"target").
+; On completion, the session invokes onCaptured(ahkKey, displayKey) exactly once;
+; the callback is held only for the live session, never registered persistently.
+StartCapture(target, onCaptured) {
     global IsCapturing := false  ; start disabled, enable after delay
+    global CaptureTarget := target
+    global CaptureOnCaptured := onCaptured
     global CaptureKeys := []
     global CaptureHadKeys := false
     global CaptureMouseKeys := Map()
@@ -270,11 +255,15 @@ CapturePolling() {
     }
 }
 
-; ---- Finalize capture: build ahkKey and apply ----
+; ---- Finalize capture: build ahkKey and deliver via the per-call callback ----
 FinishCapture() {
     global IsCapturing := false
     SetTimer(StartCaptureDelayed, 0)
     RemoveAllCaptureHooks()
+
+    ; Take the callback out of the slot first so it fires exactly once
+    onCaptured := CaptureOnCaptured
+    global CaptureOnCaptured := ""
 
     if (CaptureKeys.Length = 0) {
         try CaptureGui.Destroy()
@@ -282,40 +271,42 @@ FinishCapture() {
         return
     }
 
+    ahkKey := BuildAhkKey(CaptureKeys, CaptureTarget)
+    displayKey := KeyToDisplay(ahkKey)
+    if (onCaptured != "")
+        onCaptured(ahkKey, displayKey)
+
+    try CaptureGui.Destroy()
+    global CaptureGui := ""
+}
+
+; Fold the captured key list into the final AHK key string for a capture mode.
+; captureKeys holds modifier prefixes ("^", "+", "!", "#") and key names;
+; targetMode is "modifier", "source", or "target".
+BuildAhkKey(captureKeys, targetMode) {
     ; Split modifier prefixes and non-modifier keys
     modifiers := ""
     mainKeys := []
-    for _, k in CaptureKeys {
+    for _, k in captureKeys {
         if (k = "^" || k = "+" || k = "!" || k = "#")
             modifiers .= k
         else
             mainKeys.Push(k)
     }
 
-    if (CaptureTarget = "modifier") {
+    if (targetMode = "modifier") {
         ; Modifier capture mode: take first non-modifier key, or the modifier itself
-        if (mainKeys.Length > 0) {
-            ahkKey := mainKeys[1]
-        } else {
-            ; Only modifiers were pressed, restore back to a key name
-            ahkKey := ModifierPrefixToKeyName(modifiers)
-        }
-        displayKey := KeyToDisplay(ahkKey)
-        ApplyCapturedKey(ahkKey, displayKey)
-    } else {
-        ; Source / target capture mode
-        if (mainKeys.Length > 0) {
-            ahkKey := modifiers . mainKeys[1]
-        } else {
-            ; Only modifiers were pressed
-            ahkKey := ModifierPrefixToKeyName(modifiers)
-        }
-        displayKey := KeyToDisplay(ahkKey)
-        ApplyCapturedKey(ahkKey, displayKey)
+        if (mainKeys.Length > 0)
+            return mainKeys[1]
+        ; Only modifiers were pressed, restore back to a key name
+        return ModifierPrefixToKeyName(modifiers)
     }
 
-    try CaptureGui.Destroy()
-    global CaptureGui := ""
+    ; Source / target capture mode
+    if (mainKeys.Length > 0)
+        return modifiers . mainKeys[1]
+    ; Only modifiers were pressed
+    return ModifierPrefixToKeyName(modifiers)
 }
 
 ; Restore modifier prefixes back to a key name (used when only modifiers were pressed)
@@ -335,6 +326,7 @@ ModifierPrefixToKeyName(prefixes) {
 ; ---- Cancel capture ----
 CancelCapture() {
     global IsCapturing := false
+    global CaptureOnCaptured := ""
     SetTimer(StartCaptureDelayed, 0)  ; cancel any pending delayed timer
     RemoveAllCaptureHooks()
     try CaptureGui.Destroy()
@@ -453,27 +445,4 @@ GetCurrentModifiers() {
     if GetKeyState("LWin") || GetKeyState("RWin")
         modifiers .= "#"
     return modifiers
-}
-
-ApplyCapturedKey(ahkKey, displayKey) {
-    if (CaptureTarget = "modifier") {
-        EditModifierEdit.Value := displayKey
-        EditModifierEdit.ahkKey := ahkKey
-        UpdatePassthroughState()
-    } else if (CaptureTarget = "source") {
-        EditSourceEdit.Value := displayKey
-        EditSourceEdit.ahkKey := ahkKey
-    } else if (CaptureTarget = "target") {
-        EditTargetEdit.Value := displayKey
-        EditTargetEdit.ahkKey := ahkKey
-    }
-}
-
-; This function must be called from the MappingEditor module
-UpdatePassthroughState() {
-    ; "Keep modifier behavior" option is only meaningful when a modifier is set
-    hasModifier := EditModifierEdit.ahkKey != ""
-    EditPassthroughCB.Enabled := hasModifier
-    if !hasModifier
-        EditPassthroughCB.Value := 0
 }
