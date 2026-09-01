@@ -6,7 +6,6 @@
 
 ; Globals shared across modules
 global CONTEXT_MENU_DISMISS_DELAY
-global HotkeyRegErrors
 
 ; For Path C, only register Up hotkeys on source keys that support key-up
 SupportsKeyUpHotkey(hotkeyName) {
@@ -118,7 +117,9 @@ class PathCEngine {
 
     ; Register all Path C modifier/source routing hotkeys (was RegisterAllPathCHotkeys)
     ; This is the only place where the engine touches Hotkey()
+    ; Returns the array of hotkey names that failed registration
     Commit() {
+        regErrors := []
         ; Modifiers: keyboard/mouse keys all use "~modKey" / "~modKey Up" to pass through events
         for modKey, _ in this.modsUsed {
             if (modKey = "")
@@ -132,7 +133,7 @@ class PathCEngine {
                 Hotkey(downHk, ObjBindMethod(this, "OnModDown", modKey), "On")
                 Hotkey(upHk, ObjBindMethod(this, "OnModUp", modKey), "On")
             } catch as e {
-                HotkeyRegErrors.Push(downHk)
+                regErrors.Push(downHk)
                 continue
             }
 
@@ -157,14 +158,14 @@ class PathCEngine {
                     Hotkey(sourceHotkey, ObjBindMethod(this, "OnSourceDown", sourceKey), "On")
                     record.checker := wheelRoutePredicate
                 } catch as e {
-                    HotkeyRegErrors.Push(sourceHotkey)
+                    regErrors.Push(sourceHotkey)
                 }
             } else {
                 try {
                     HotIf()
                     Hotkey(sourceHotkey, ObjBindMethod(this, "OnSourceDown", sourceKey), "On")
                 } catch as e {
-                    HotkeyRegErrors.Push(sourceHotkey)
+                    regErrors.Push(sourceHotkey)
                 }
             }
 
@@ -176,13 +177,14 @@ class PathCEngine {
                     Hotkey(srcUpHotkey, ObjBindMethod(this, "OnSourceUp", sourceKey), "On")
                     record.keyUp := srcUpHotkey
                 } catch as e {
-                    HotkeyRegErrors.Push(srcUpHotkey)
+                    regErrors.Push(srcUpHotkey)
                 }
             }
             this.registrations.Push(record)
         }
 
         HotIf()
+        return regErrors
     }
 
     ; Disable all engine-owned hotkeys, stop repeats, and clear all state

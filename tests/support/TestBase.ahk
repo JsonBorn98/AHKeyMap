@@ -106,6 +106,7 @@ ResetAppState() {
     global StatusDetailLink
     global StatusHasWarning
     global StatusDetailHovered
+    global LastReloadResult
     global BtnAddMapping
     global BtnEditMapping
     global BtnCopyMapping
@@ -124,8 +125,6 @@ ResetAppState() {
     global HoldTimers
     global InterceptModKeys
     global AllProcessCheckers
-    global HotkeyConflicts
-    global HotkeyRegErrors
     global CaptureTarget
     global CaptureOnCaptured
     global CaptureGui
@@ -152,6 +151,7 @@ ResetAppState() {
     StatusDetailLink := ""
     StatusHasWarning := false
     StatusDetailHovered := false
+    LastReloadResult := ""
     BtnAddMapping := ""
     BtnEditMapping := ""
     BtnCopyMapping := ""
@@ -172,8 +172,6 @@ ResetAppState() {
     ClearMap(HoldTimers)
     ClearMap(InterceptModKeys)
     AllProcessCheckers.Length := 0
-    HotkeyConflicts.Length := 0
-    HotkeyRegErrors.Length := 0
 
     CaptureTarget := ""
     CaptureOnCaptured := ""

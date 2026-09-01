@@ -1,6 +1,6 @@
 ; ============================================================================
 ; AHKeyMap - Config management module
-; Pure config/state INI I/O plus the main-window render functions
+; Pure config/state INI I/O (load/save, list enumeration, enabled persistence)
 ; ============================================================================
 
 ; Globals shared across modules
@@ -9,15 +9,6 @@ global SCRIPT_DIR
 global CONFIG_DIR
 global STATE_FILE
 global AllConfigs
-global ConfigDDL
-global EnabledCB
-global ProcessText
-global StatusText
-global StatusDetailLink
-global StatusHasWarning
-global MappingLV
-global HotkeyConflicts
-global HotkeyRegErrors
 
 ; ============================================================================
 ; Config management functions
@@ -183,124 +174,4 @@ SaveEnabledStates() {
         try FileDelete(tempFile)
         MsgBox(Format(L("Config.SaveEnabledStatesError"), e.Message), APP_NAME, "IconX")
     }
-}
-
-; ============================================================================
-; Main-window render functions
-; ============================================================================
-
-; Refresh config dropdown (GUI only, does not affect hotkeys)
-RefreshConfigList(selectName := "") {
-    configs := GetConfigList()
-    items := []
-    selectIdx := 0
-    for i, name in configs {
-        items.Push(name)
-        if (name = selectName)
-            selectIdx := i
-    }
-
-    if !IsObject(ConfigDDL) {
-        ; No GUI (headless tests): just track the selection in the store
-        if (selectIdx > 0)
-            ConfigStore.Instance.Select(configs[selectIdx])
-        else
-            ConfigStore.Instance.Select("")
-        return
-    }
-
-    ConfigDDL.Delete()
-    if (items.Length > 0) {
-        ConfigDDL.Add(items)
-        if (selectIdx > 0)
-            ConfigDDL.Choose(selectIdx)
-        else
-            ConfigDDL.Choose(1)
-        OnConfigSelect(ConfigDDL, "")
-    } else {
-        ConfigStore.Instance.Select("")
-    }
-    UpdateStatusText()
-}
-
-; Format process scope for display (using parsed arrays)
-FormatProcessDisplay(processMode, processList, excludeProcessList) {
-    if (processMode = "include") {
-        if (processList.Length = 0)
-            return L("Config.Scope.Global")
-        if (processList.Length = 1)
-            return L("Config.Scope.Include.Single", processList[1])
-        return L("Config.Scope.Include.Multi", processList[1], processList.Length - 1)
-    } else if (processMode = "exclude") {
-        if (excludeProcessList.Length = 0)
-            return L("Config.Scope.Global")
-        if (excludeProcessList.Length = 1)
-            return L("Config.Scope.Exclude.Single", excludeProcessList[1])
-        return L("Config.Scope.Exclude.Multi", excludeProcessList[1], excludeProcessList.Length - 1)
-    }
-    return L("Config.Scope.Global")
-}
-
-; Update status bar text
-UpdateStatusText() {
-    enabledCount := 0
-    totalCount := AllConfigs.Length
-    for _, cfg in AllConfigs {
-        if (cfg["enabled"])
-            enabledCount++
-    }
-
-    statusStr := L("Config.Status.EnabledSummary", enabledCount, totalCount)
-    hasWarning := false
-    if (HotkeyConflicts.Length > 0) {
-        statusStr .= L("Config.Status.ConflictSuffix", HotkeyConflicts.Length)
-        hasWarning := true
-    }
-    if (HotkeyRegErrors.Length > 0) {
-        statusStr .= L("Config.Status.RegErrorSuffix", HotkeyRegErrors.Length)
-        hasWarning := true
-    }
-
-    ; When warnings exist: make status text orange and show detail link
-    global StatusHasWarning := hasWarning
-    if (StatusText = "" || StatusDetailLink = "")
-        return
-
-    if (hasWarning) {
-        StatusText.SetFont("cE07B00")
-        StatusDetailLink.Opt("-Hidden")
-    } else {
-        StatusText.SetFont("cGray")
-        StatusDetailLink.Opt("+Hidden")
-        SetStatusDetailHover(false)
-    }
-    StatusText.Value := statusStr
-}
-
-; Refresh mapping ListView display (no-op without a GUI)
-RefreshMappingLV() {
-    if !IsObject(MappingLV)
-        return
-    MappingLV.Delete()
-    for idx, mapping in ConfigStore.Instance.SelectedMappings() {
-        holdText := mapping["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
-        modDisplay := mapping["ModifierKey"] != "" ? KeyToDisplay(mapping["ModifierKey"]) : ""
-        ptText := ""
-        if (mapping["ModifierKey"] != "")
-            ptText := mapping["PassthroughMod"] ? L("Config.Mapping.ModMode.Pass") : L("Config.Mapping.ModMode.Block")
-        delayText := mapping["HoldRepeat"] ? mapping["RepeatDelay"] : ""
-        intervalText := mapping["HoldRepeat"] ? mapping["RepeatInterval"] : ""
-        MappingLV.Add(""
-            , idx
-            , modDisplay
-            , KeyToDisplay(mapping["SourceKey"])
-            , KeyToDisplay(mapping["TargetKey"])
-            , holdText
-            , ptText
-            , delayText
-            , intervalText)
-    }
-    ; Auto-adjust column widths
-    loop 8
-        MappingLV.ModifyCol(A_Index, "AutoHdr")
 }

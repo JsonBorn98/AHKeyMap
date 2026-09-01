@@ -22,14 +22,14 @@ Audience: coding agents working on AHKeyMap.
 ```text
 src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
 src/shared/Schema.ahk      — mapping/config record schema (static namespaces: construction, normalization, path rule)
-src/core/Config.ahk        — config/state INI I/O, atomic writes, main-window render functions
-src/core/ConfigStore.ahk   — config working copy owner: AllConfigs, selection, mutation chokepoint
+src/core/Config.ahk        — pure config/state INI I/O and atomic writes
+src/core/ConfigStore.ahk   — config working copy owner: AllConfigs, selection, mutation chokepoint, OnChanged slot
 src/core/Localization.ahk  — `L(key, args*)`, `BuildEnPack()`, `BuildZhPack()`
 src/core/PathCEngine.ahk   — Path C engine (sessions, routing, repeat timers, own hotkey registration)
 src/core/HotkeyEngine.ahk  — Path A/B registration, conflicts, process checkers
 src/core/KeyCapture.ahk    — key capture via polling + mouse hook
 src/shared/Utils.ahk       — key formatting, process picker, auto-start helpers
-src/ui/GuiMain.ahk         — main window, tray menu, modal helpers
+src/ui/GuiMain.ahk         — main window, tray menu, modal helpers, render-from-state layer (pure view-model builders + widget writes)
 src/ui/MappingEditor.ahk   — mapping edit dialog
 src/ui/GuiEvents.ahk       — config/mapping CRUD and scope editing
 tests/support/TestBase.ahk — assertions, sandbox reset, send capture
@@ -147,10 +147,18 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 ### Config store conventions
 - `src/core/ConfigStore.ahk` owns the config working copy: the `AllConfigs` array, the current selection (`ConfigStore.Instance.SelectedName`), and every mutation.
 - Read the selected config via `ConfigStore.Instance.Selected()` / `SelectedMappings()`; never keep a mirrored set of `Current*` globals.
-- Every mutation goes through one store method (`Select`, `SetEnabled`, `SetScope`, `AddMapping`, `ReplaceMapping`, `DeleteMapping`, `CreateConfig`, `CopyConfig`, `DeleteConfig`); each runs the same chokepoint internally: atomic persist (`SaveConfig` + `SaveEnabledStates`) → `ReloadAllHotkeys()` → render.
+- Every mutation goes through one store method (`Select`, `SetEnabled`, `SetScope`, `AddMapping`, `ReplaceMapping`, `DeleteMapping`, `CreateConfig`, `CopyConfig`, `DeleteConfig`); each ends in the same chokepoint: atomic persist (`SaveConfig` + `SaveEnabledStates`) → `ReloadAllHotkeys()` → `OnChanged(reloadResult)`. `Select` is render-only and notifies with `""`.
 - GUI handlers shrink to input validation plus one store call; they must not persist or reload on their own.
-- `src/core/Config.ahk` is pure INI I/O plus the main-window render functions; it does not own selection state.
+- `src/core/Config.ahk` is pure INI I/O; it owns no selection state and no render code.
 - Tests reset the store with `ResetConfigStoreForTests()` (TestBase calls it from `ResetAppState`).
+
+### Rendering seam conventions
+- `ConfigStore.OnChanged` is the only core→ui data flow: core fires it, ui registers it. `BuildMainGui()` registers `RenderFromState` at startup; nothing in `src/core/` may reference GUI controls or ui functions.
+- `RenderFromState(reloadResult)` in `src/ui/GuiMain.ahk` is the single render entry; it stores the reload result in the ui-owned `LastReloadResult` global and refreshes dropdown, scope controls, mapping list, and status bar.
+- Rendering only runs when the main window exists (`RenderFromState` returns early headless); there are no `StatusText = ""`-style test guards.
+- Pure view-model builders (`BuildStatusSummary`, `BuildMappingRows`, `BuildStatusDetails`, `FormatProcessDisplay`) take data and return view models; unit-test those, not the widgets. Widget writes stay in the thin `Refresh*`/`UpdateStatusText` functions.
+- Engine output is returned, never stored in globals: `ReloadAllHotkeys()` returns `{conflicts, regErrors}`; `DetectHotkeyConflicts` and `PathCEngine.Commit()` return their arrays. `OnStatusTextClick` reads `LastReloadResult`.
+- `StatusHasWarning` is written by the status render and read only by ui hover handlers.
 
 ## Common pitfalls
 - `global Foo := value` inside a module overwrites the main-entry value at `#Include` time.

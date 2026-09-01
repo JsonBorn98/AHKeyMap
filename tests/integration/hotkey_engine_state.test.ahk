@@ -22,7 +22,7 @@ RegisterTest("Path C source key up stops repeat timers for matching mappings", T
 RegisterTest("Path C gesture completion dismisses the RButton menu with Escape", Test_PathCEngine_ModUp_DismissesContextMenuAfterGesture)
 RegisterTest("Path C ModDown resets stale session before starting new one", Test_PathCEngine_ModDown_ResetsStaleSession)
 RegisterTest("Path C Commit registers routing hotkeys and Reset disables them again", Test_PathCEngine_CommitAndReset_RoundTrip)
-RegisterTest("Path C Commit reports registration failures through HotkeyRegErrors", Test_PathCEngine_Commit_ReportsRegErrors)
+RegisterTest("Path C Commit reports registration failures through its return value", Test_PathCEngine_Commit_ReportsRegErrors)
 RegisterTest("DetectHotkeyConflicts reports no conflict for disabled configs", Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs)
 RegisterTest("DetectHotkeyConflicts reports no conflict for disjoint scopes", Test_DetectHotkeyConflicts_NoConflictForDisjointScopes)
 
@@ -39,11 +39,11 @@ Test_DetectHotkeyConflicts_ReportsScopeAndModifierIssues() {
     AllConfigs.Push(cfg3)
     AllConfigs.Push(cfg4)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
-    AssertEq(2, HotkeyConflicts.Length)
-    AssertEq("F13", HotkeyConflicts[1].hotkey)
-    AssertEq("CapsLock (Path B/C conflict)", HotkeyConflicts[2].hotkey)
+    AssertEq(2, conflicts.Length)
+    AssertEq("F13", conflicts[1].hotkey)
+    AssertEq("CapsLock (Path B/C conflict)", conflicts[2].hotkey)
 }
 
 Test_ReloadAllHotkeys_DelegatesPathCToEngineAndCleansUp() {
@@ -55,12 +55,15 @@ Test_ReloadAllHotkeys_DelegatesPathCToEngineAndCleansUp() {
     ]
     AllConfigs.Push(BuildConfigRecord("DispatchCfg", "global", "", "", true, mappings))
 
-    ReloadAllHotkeys()
+    result := ReloadAllHotkeys()
 
     ; Path A/B registration bookkeeping stays in the shared globals
     AssertTrue(ActiveHotkeys.Length >= 3)
     AssertEq(1, InterceptModKeys.Count)
-    AssertEq(0, HotkeyRegErrors.Length)
+
+    ; Engine output arrives through the return value, not globals
+    AssertEq(0, result.conflicts.Length)
+    AssertEq(0, result.regErrors.Length)
 
     ; Path C behavior is reachable through the engine's public interface
     engine := PathCEngine.Instance
@@ -257,8 +260,8 @@ Test_PathCEngine_CommitAndReset_RoundTrip() {
     engine.AddMapping(MakeMapping("RAlt", "F23", "^x", 0, 300, 50, 1), "Cfg|2", "Cfg", "")
 
     ; Commit registers the routing hotkeys without errors
-    engine.Commit()
-    AssertEq(0, HotkeyRegErrors.Length)
+    regErrors := engine.Commit()
+    AssertEq(0, regErrors.Length)
 
     ; Reset disables them and clears all mapping state
     engine.Reset()
@@ -271,16 +274,15 @@ Test_PathCEngine_CommitAndReset_RoundTrip() {
 
 Test_PathCEngine_Commit_ReportsRegErrors() {
     engine := PathCEngine()
-    ; Invalid key names must fail registration and land in the shared error list
+    ; Invalid key names must fail registration and surface in the returned error list
     engine.AddMapping(MakeMapping("RButton", "NotARealKey", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
-    engine.Commit()
+    regErrors := engine.Commit()
 
-    AssertEq(2, HotkeyRegErrors.Length)
-    AssertArrayContains(HotkeyRegErrors, "*NotARealKey")
-    AssertArrayContains(HotkeyRegErrors, "*NotARealKey Up")
+    AssertEq(2, regErrors.Length)
+    AssertArrayContains(regErrors, "*NotARealKey")
+    AssertArrayContains(regErrors, "*NotARealKey Up")
 
     engine.Reset()
-    HotkeyRegErrors.Length := 0
 }
 
 Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs() {
@@ -291,10 +293,10 @@ Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs() {
     AllConfigs.Push(cfg1)
     AllConfigs.Push(cfg2)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
     ; Disabled config should not produce a conflict
-    AssertEq(0, HotkeyConflicts.Length)
+    AssertEq(0, conflicts.Length)
 }
 
 Test_DetectHotkeyConflicts_NoConflictForDisjointScopes() {
@@ -305,8 +307,8 @@ Test_DetectHotkeyConflicts_NoConflictForDisjointScopes() {
     AllConfigs.Push(cfg1)
     AllConfigs.Push(cfg2)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
     ; Disjoint process scopes should not conflict
-    AssertEq(0, HotkeyConflicts.Length)
+    AssertEq(0, conflicts.Length)
 }

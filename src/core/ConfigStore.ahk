@@ -1,21 +1,22 @@
 ; ============================================================================
 ; AHKeyMap - Config store module
 ; Owns AllConfigs, the current selection, and every config/mutation operation.
-; Each mutation runs one chokepoint: atomic persist -> hotkey reload -> render.
+; Each mutation runs one chokepoint: atomic persist -> hotkey reload -> notify.
 ; ============================================================================
 
-; Globals shared across modules (render functions and engine input stay global)
+; Globals shared across modules (engine input stays global)
 global AllConfigs
-global EnabledCB
-global ProcessText
 
 ; Deep module for the config working copy:
 ;   Select(name) / Selected() to read the selected record, and one semantic
 ;   method per user action. Every mutation runs the same chokepoint:
 ;   persist (atomic config write + SaveEnabledStates) -> ReloadAllHotkeys()
-;   -> render (RefreshConfigList / RefreshMappingLV / UpdateStatusText).
-; Production code uses the lazy singleton `ConfigStore.Instance`; tests may
-; reset the singleton via ResetConfigStoreForTests().
+;   -> OnChanged(reloadResult).
+; The store never touches the GUI: rendering happens in whatever the host
+; registered into the OnChanged slot (the ui layer registers its render
+; entry; headless tests register nothing). Production code uses the lazy
+; singleton `ConfigStore.Instance`; tests may reset the singleton via
+; ResetConfigStoreForTests().
 class ConfigStore {
     static _instance := ""
 
@@ -32,6 +33,28 @@ class ConfigStore {
         ; Field name must differ from the SelectedName property (AHK v2
         ; identifiers are case-insensitive; same name would be read-only).
         this.selName := ""
+        ; Callback slot fired after every chokepoint with the ReloadAllHotkeys
+        ; result; the host (GUI) owns rendering, core stays ui-free.
+        this.onChanged := ""
+    }
+
+    ; ------------------------------------------------------------------------
+    ; OnChanged seam
+    ; ------------------------------------------------------------------------
+
+    ; Register the change-notification callback: OnChanged(reloadResult)
+    ; reloadResult is the Map returned by ReloadAllHotkeys() ({conflicts,
+    ; regErrors}). Register "" to clear. One subscriber is all this seam
+    ; needs; it exists to invert the core->ui dependency direction.
+    SetOnChanged(callback) {
+        this.onChanged := callback
+    }
+
+    ; Fire the registered callback (no-op when nothing is registered)
+    NotifyChanged(reloadResult) {
+        if (this.onChanged = "")
+            return
+        this.onChanged.Call(reloadResult)
     }
 
     ; ------------------------------------------------------------------------
@@ -76,31 +99,19 @@ class ConfigStore {
     ; Semantic mutations (each runs the single chokepoint internally)
     ; ------------------------------------------------------------------------
 
-    ; Select a config by name ("" clears the selection) and render it
+    ; Select a config by name ("" clears the selection), persist the last
+    ; viewed name, and notify. Selection itself is render-only (no hotkey
+    ; reload), so it notifies with the unchanged "" result.
     Select(name) {
         this.selName := name
         cfg := this.Selected()
         if (cfg = "")
             this.selName := ""
         if (cfg != "") {
-            this.RenderScopeControls(FormatProcessDisplay(cfg["processMode"], cfg["processList"], cfg["excludeProcessList"]), cfg["enabled"], true)
-            RefreshMappingLV()
             ; Persist last viewed config name into _state.ini
             try IniWrite(name, STATE_FILE, "State", "LastConfig")
-        } else {
-            this.RenderScopeControls(L("Config.Scope.None"), 0, false)
-            RefreshMappingLV()
         }
-    }
-
-    ; Render the scope text and enable checkbox (no-op without a GUI)
-    RenderScopeControls(scopeText, enabledFlag, enabledEditable) {
-        if (IsObject(ProcessText))
-            ProcessText.Value := scopeText
-        if (IsObject(EnabledCB)) {
-            EnabledCB.Value := enabledFlag
-            EnabledCB.Enabled := enabledEditable
-        }
+        this.NotifyChanged("")
     }
 
     ; Enable/disable the selected config
@@ -109,8 +120,6 @@ class ConfigStore {
         if (cfg = "")
             return
         cfg["enabled"] := (flag ? true : false)
-        if (IsObject(EnabledCB))
-            EnabledCB.Value := cfg["enabled"]
         this.RunChokepoint()
     }
 
@@ -139,8 +148,6 @@ class ConfigStore {
             cfg["excludeProcessList"] := []
         }
 
-        if (IsObject(ProcessText))
-            ProcessText.Value := FormatProcessDisplay(mode, cfg["processList"], cfg["excludeProcessList"])
         this.RunChokepoint()
     }
 
@@ -199,8 +206,8 @@ class ConfigStore {
         IniWrite("1", STATE_FILE, "EnabledConfigs", name)
 
         LoadAllConfigs()
-        RefreshConfigList(name)
-        ReloadAllHotkeys()
+        this.NotifyChokepointReload()
+        this.Select(name)
     }
 
     ; Copy the selected config under a new name and select the copy
@@ -222,8 +229,8 @@ class ConfigStore {
         IniWrite("1", STATE_FILE, "EnabledConfigs", newName)
 
         LoadAllConfigs()
-        RefreshConfigList(newName)
-        ReloadAllHotkeys()
+        this.NotifyChokepointReload()
+        this.Select(newName)
     }
 
     ; Delete the selected config (file + record) and clear the selection
@@ -242,8 +249,7 @@ class ConfigStore {
         this.selName := ""
 
         SaveEnabledStates()
-        ReloadAllHotkeys()
-        RefreshConfigList()
+        this.NotifyChokepointReload()
     }
 
     ; ------------------------------------------------------------------------
@@ -266,25 +272,30 @@ class ConfigStore {
     ; ------------------------------------------------------------------------
 
     ; Single mutation flow: persist the selected config (atomic write plus
-    ; enabled states) -> reload all hotkeys -> render the mapping list.
+    ; enabled states) -> reload all hotkeys -> notify with the reload result.
     ; Every mutation, including SetEnabled, runs this exact sequence.
     RunChokepoint() {
         cfg := this.Selected()
         if (cfg != "")
             SaveConfig(cfg)
         SaveEnabledStates()
-        ReloadAllHotkeys()
-        RefreshMappingLV()
+        this.NotifyChokepointReload()
+    }
+
+    ; Reload hotkeys and hand the result to the OnChanged subscriber
+    NotifyChokepointReload() {
+        this.NotifyChanged(ReloadAllHotkeys())
     }
 
     ; ------------------------------------------------------------------------
     ; Reset
     ; ------------------------------------------------------------------------
 
-    ; Clear the selection without touching the GUI or AllConfigs
-    ; (test/teardown helper, mirrors PathCEngine.Reset())
+    ; Clear the selection and the OnChanged registration without touching
+    ; AllConfigs (test/teardown helper, mirrors PathCEngine.Reset())
     Reset() {
         this.selName := ""
+        this.onChanged := ""
     }
 }
 

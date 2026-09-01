@@ -9,8 +9,6 @@ global ActiveHotkeys
 global HoldTimers
 global InterceptModKeys
 global AllProcessCheckers
-global HotkeyConflicts
-global HotkeyRegErrors
 global ForegroundProcessHook
 
 ; ============================================================================
@@ -84,6 +82,12 @@ AddUniqueArrayValue(arr, value) {
     arr.Push(value)
 }
 
+; Append every element of src to dest (in order)
+AppendAll(dest, src) {
+    for _, value in src
+        dest.Push(value)
+}
+
 MakeActiveHotkeyRecord(checker := "", configName := "", key := "", keyUp := "") {
     return {
         checker: checker,
@@ -133,7 +137,6 @@ UnregisterAllHotkeys() {
     global InterceptModKeys := Map()
     global HoldTimers := Map()
     global AllProcessCheckers := []
-    global HotkeyRegErrors := []
 
     ; Path C hotkeys and state are owned by the Path C engine
     PathCEngine.Instance.Reset()
@@ -158,7 +161,9 @@ UnregisterAllHotkeys() {
 }
 
 ; Reload hotkeys for all enabled configs
+; Returns the engine output as a Map: {conflicts: [...], regErrors: [...]}
 ReloadAllHotkeys() {
+    regErrors := []
     UnregisterAllHotkeys()
 
     ; Split configs by scope priority: include > exclude > global
@@ -183,30 +188,29 @@ ReloadAllHotkeys() {
 
     ; Register in priority order: include first (most specific), global last
     for _, cfg in includeConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
     for _, cfg in excludeConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
     for _, cfg in globalConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
 
     ; Register shared routing hotkeys for all Path C mappings
-    PathCEngine.Instance.Commit()
+    AppendAll(regErrors, PathCEngine.Instance.Commit())
 
     HotIf()
 
-    ; Detect hotkey conflicts and update the status bar
-    DetectHotkeyConflicts()
-    UpdateStatusText()
+    return { conflicts: DetectHotkeyConflicts(), regErrors: regErrors }
 }
 
 ; Detect hotkey conflicts across enabled configs with overlapping scopes
+; Pure function: reads AllConfigs, returns the conflict array, touches nothing
 ; Conflict rules:
 ;   global vs any non-empty scope -> conflict
 ;   exclude vs exclude -> conflict (conservative strategy)
 ;   include vs include -> conflict when process lists intersect
 ;   include vs global -> conflict when include is non-empty
 DetectHotkeyConflicts() {
-    global HotkeyConflicts := []
+    conflicts := []
 
     ; Collect mappings from enabled configs together with scope metadata
     hotkeyGroups := Map()
@@ -271,7 +275,7 @@ DetectHotkeyConflicts() {
                 a := group[i]
                 b := group[j]
                 if ScopesOverlap(a.mode, a.procKey, b.mode, b.procKey) {
-                    HotkeyConflicts.Push({
+                    conflicts.Push({
                         hotkey: a.hotkey,
                         config1: a.configName,
                         idx1: a.mappingIdx,
@@ -293,7 +297,7 @@ DetectHotkeyConflicts() {
         for _, bEntry in bEntries {
             for _, cEntry in cEntries {
                 if ScopesOverlap(bEntry.mode, bEntry.procKey, cEntry.mode, cEntry.procKey) {
-                    HotkeyConflicts.Push({
+                    conflicts.Push({
                         hotkey: modKey " (Path B/C conflict)",
                         config1: bEntry.configName,
                         idx1: 0,
@@ -304,6 +308,7 @@ DetectHotkeyConflicts() {
             }
         }
     }
+    return conflicts
 }
 
 ; Normalize include process list into a comparable scope key:
@@ -432,10 +437,12 @@ ScopesOverlap(mode1, procKey1, mode2, procKey2) {
 }
 
 ; Register all hotkeys for a single config
+; Returns the array of hotkey names that failed registration
 RegisterConfigHotkeys(cfg) {
+    regErrors := []
     mappings := cfg["mappings"]
     if (mappings.Length = 0)
-        return
+        return regErrors
 
     ; Create process checker closure (used by Path A/B; Path C checks scope in callbacks)
     checker := MakeProcessChecker(cfg)
@@ -447,13 +454,16 @@ RegisterConfigHotkeys(cfg) {
 
     ; Register all mappings under this config (A/B register hotkeys, C builds mapping table)
     for idx, mapping in mappings {
-        RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
+        AppendAll(regErrors, RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"]))
     }
+    return regErrors
 }
 
 ; Register a single mapping by dispatching to Path A/B/C
+; Returns the array of hotkey names that failed registration
 ; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
 RegisterMapping(m, useCustomHotIf, checker, uniqueIdx, configName) {
+    regErrors := []
     path := Mapping.ClassifyPath(m)
 
     ; Path A: no modifier, direct hotkey registration
@@ -463,9 +473,9 @@ RegisterMapping(m, useCustomHotIf, checker, uniqueIdx, configName) {
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathA(m, hkInfo, uniqueIdx)
+        RegisterPathA(m, hkInfo, uniqueIdx, regErrors)
         ActiveHotkeys.Push(hkInfo)
-        return
+        return regErrors
     }
 
     ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
@@ -475,18 +485,19 @@ RegisterMapping(m, useCustomHotIf, checker, uniqueIdx, configName) {
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathB(m, hkInfo, uniqueIdx, checker, configName)
+        RegisterPathB(m, hkInfo, uniqueIdx, checker, configName, regErrors)
         ActiveHotkeys.Push(hkInfo)
-        return
+        return regErrors
     }
 
     ; Path C: stateful passthrough, handled by Path C engine instead of direct target callback
     HotIf()
     PathCEngine.Instance.AddMapping(m, uniqueIdx, configName, checker)
+    return regErrors
 }
 
 ; Path A: no modifier, directly map sourceKey -> targetKey
-RegisterPathA(m, hkInfo, uniqueIdx) {
+RegisterPathA(m, hkInfo, uniqueIdx, regErrors) {
     sourceKey := m["SourceKey"]
     targetKey := m["TargetKey"]
     holdRepeat := m["HoldRepeat"]
@@ -501,17 +512,17 @@ RegisterPathA(m, hkInfo, uniqueIdx) {
             Hotkey(sourceKey " Up", upCb, "On")
             hkInfo.keyUp := sourceKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push(sourceKey)
+            regErrors.Push(sourceKey)
         }
     } else {
         try Hotkey(sourceKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push(sourceKey)
+            regErrors.Push(sourceKey)
     }
 }
 
 ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
-RegisterPathB(m, hkInfo, uniqueIdx, checker, configName) {
+RegisterPathB(m, hkInfo, uniqueIdx, checker, configName, regErrors) {
     modKey := m["ModifierKey"]
     sourceKey := m["SourceKey"]
     targetKey := m["TargetKey"]
@@ -528,12 +539,12 @@ RegisterPathB(m, hkInfo, uniqueIdx, checker, configName) {
             Hotkey(comboKey " Up", upCb, "On")
             hkInfo.keyUp := comboKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push(comboKey)
+            regErrors.Push(comboKey)
         }
     } else {
         try Hotkey(comboKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push(comboKey)
+            regErrors.Push(comboKey)
     }
 
     ; Register modifier restore hotkey only once per HotIf scope
@@ -545,7 +556,7 @@ RegisterPathB(m, hkInfo, uniqueIdx, checker, configName) {
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
         } catch as e {
-            HotkeyRegErrors.Push(modKey)
+            regErrors.Push(modKey)
         }
     }
 }

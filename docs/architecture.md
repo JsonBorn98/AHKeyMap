@@ -11,15 +11,15 @@
 
 ## 模块职责
 - `src/AHKeyMap.ahk`：全局变量初始化、`APP_ROOT` 解析、模块 `#Include`、启动入口
-- `src/core/Config.ahk`：纯 INI I/O（加载/保存、配置列表枚举、启用状态持久化）与主窗口渲染函数；`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据
-- `src/core/ConfigStore.ahk`：配置工作副本的唯一所有者；持有 `AllConfigs`、当前选中项与全部变更入口（惰性单例 `ConfigStore.Instance`）
+- `src/core/Config.ahk`：纯 INI I/O（加载/保存、配置列表枚举、启用状态持久化）；`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据
+- `src/core/ConfigStore.ahk`：配置工作副本的唯一所有者；持有 `AllConfigs`、当前选中项、全部变更入口与 `OnChanged` 回调槽（惰性单例 `ConfigStore.Instance`）
 - `src/core/Localization.ahk`：本地化语言包与 `L(key, args*)` 辅助函数
-- `src/ui/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
+- `src/ui/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理，以及渲染层：`RenderFromState` 统一入口 + 纯视图模型构造器（`BuildStatusSummary` / `BuildMappingRows` / `BuildStatusDetails` / `FormatProcessDisplay`）+ 薄控件写入（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
 - `src/ui/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `src/ui/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `src/core/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
-- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 委托给 `src/core/PathCEngine.ahk`；冲突检测包含跨路径 B/C 修饰键冲突
-- `src/core/PathCEngine.ahk`：路径 C 透传组合引擎（会话状态机、统一事件路由、自有的 repeat 定时器与滚轮路由，以及路由热键的自注册/自卸载；入口为惰性单例 `PathCEngine.Instance`）
+- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 委托给 `src/core/PathCEngine.ahk`；`ReloadAllHotkeys()` 以返回值 `{conflicts, regErrors}` 输出结果（不再写全局变量），冲突检测 `DetectHotkeyConflicts` 是纯函数
+- `src/core/PathCEngine.ahk`：路径 C 透传组合引擎（会话状态机、统一事件路由、自有的 repeat 定时器与滚轮路由，以及路由热键的自注册/自卸载；入口为惰性单例 `PathCEngine.Instance`；`Commit()` 返回注册失败的按键名数组）
 - `src/shared/Schema.ahk`：记录 schema（纯静态命名空间 `Mapping` / `ConfigRecord`）；映射记录的构造/规范化（7 键白名单、整数化、默认值、最小 10ms 钳制）、路径分类规则（`Mapping.ClassifyPath`）、热键串推导（`Mapping.HotkeyStringFor`）与 INI 序列化字段表（`Mapping.ToIniPairs`）都唯一归属于此
 - `src/shared/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
@@ -33,9 +33,23 @@
 - `src/core/ConfigStore.ahk`（惰性单例 `ConfigStore.Instance`）持有 `AllConfigs`、当前选中名（`SelectedName`）与全部变更入口：
   - 读取：`Selected()` 返回选中记录（无选中时为 `""`），`SelectedMappings()` 返回其映射数组。
   - 变更（每个方法内部运行同一条 chokepoint）：`Select(name)`、`SetEnabled(flag)`、`SetScope(mode, procStr)`、`AddMapping(mapping)`、`ReplaceMapping(index, mapping)`、`DeleteMapping(index)`、`CreateConfig(name, mode, procStr)`、`CopyConfig(newName)`、`DeleteConfig()`（内含文件删除）。
-- 统一 chokepoint：持久化（原子写配置文件 + `SaveEnabledStates`）→ `ReloadAllHotkeys()` → 渲染（现有 `Refresh*`/`UpdateStatusText`）。包括启用开关在内的所有变更都走完全相同的序列，无特殊分支。
+- 统一 chokepoint：持久化（原子写配置文件 + `SaveEnabledStates`）→ `ReloadAllHotkeys()` → `OnChanged(reloadResult)`。包括启用开关在内的所有变更都走完全相同的序列，无特殊分支。
+- `Select` 是纯渲染操作（不重载热键）：只持久化 `LastConfig` 并以 `""` 触发 `OnChanged`；`CreateConfig` / `CopyConfig` / `DeleteConfig` 以文件级序列收尾（`LoadAllConfigs` → 重载热键并通知 → `Select`）。
 - GUI 事件处理器只做输入校验 + 一次 store 调用；映射编辑弹窗 OK 时重建全新记录交给 store，Cancel 不触碰任何状态。
 - 测试通过 `ResetConfigStoreForTests()` 重置单例（TestBase 的 `ResetAppState` 会调用）。
+
+## 渲染 Seam（OnChanged → RenderFromState）
+- 依赖方向只允许 ui→core：`src/core/` 中没有任何对 GUI 控件或 ui 函数的引用；唯一的核心→界面数据流是 `ConfigStore.OnChanged` 回调槽（核心持有、界面注册）。
+- `BuildMainGui()` 在启动时执行 `ConfigStore.Instance.SetOnChanged(RenderFromState)`；语言切换重建主窗口时会重新注册。无头测试不注册任何回调，store 完全可测。
+- `RenderFromState(reloadResult)`（`src/ui/GuiMain.ahk`）是唯一渲染入口：
+  - 仅在主窗口存在时运行（无头环境直接返回，不再依赖空字符串守卫）。
+  - 收到 `ReloadAllHotkeys()` 的返回值 `{conflicts, regErrors}` 时存入 ui 侧全局 `LastReloadResult`；收到 `""`（纯渲染事件，如切换选中或切换语言）时沿用上次结果。
+  - 依次刷新配置下拉（`RefreshConfigList`，将下拉当前项同步回 store 选中态）、作用域控件（`RefreshScopeControls`）、映射列表（`RefreshMappingLV`）与状态栏（`UpdateStatusText`）。
+- 视图模型构造器是纯函数，单元测试直接覆盖（`tests/unit/view_models.test.ahk`）：
+  - `BuildStatusSummary(allConfigs, reloadResult)` → `{text, hasWarning}`；`StatusHasWarning` 由状态栏渲染写入，仅供 ui 悬停处理读取。
+  - `BuildMappingRows(mappings)` → ListView 行数据；`BuildStatusDetails(reloadResult)` → 详情弹窗文本（`OnStatusTextClick` 读取 `LastReloadResult`）。
+  - `FormatProcessDisplay(processMode, processList, excludeProcessList)` → 作用域摘要文本。
+- 引擎输出一律走返回值：`ReloadAllHotkeys()` 返回 `{conflicts, regErrors}`，`DetectHotkeyConflicts()` 返回冲突数组，`PathCEngine.Commit()` 返回注册失败按键名数组（由 `ReloadAllHotkeys` 拼接）；`HotkeyConflicts` / `HotkeyRegErrors` 全局变量已删除。
 
 ## 自动化测试架构
 
@@ -154,7 +168,7 @@
   - 启动时优先读取 `_state.ini` 中的 `UILanguage`；若缺失，则默认使用英文 (`en-US`) 作为 UI 语言，不再根据操作系统语言自动切换。
 - 托盘菜单提供语言切换入口：
   - `Language` 子菜单下有 `English` / `简体中文`，点击后更新 `CurrentLangCode` 并调用 `SaveEnabledStates()` 持久化。
-  - 切换语言时不会重启整个脚本，而是会“软重启”主窗口：关闭当前主窗口和相关子窗口，再用新的 `CurrentLangCode` 重建主窗口和托盘菜单，保持配置与热键状态不变。
+  - 切换语言时不会重启整个脚本，而是会“软重启”主窗口：关闭当前主窗口和相关子窗口，再用新的 `CurrentLangCode` 重建主窗口和托盘菜单（重建即重新注册 `RenderFromState`），随后清空并重新 `Select` 之前的配置——通过 OnChanged 通知渲染层，用新语言从状态重建整个窗口，保持配置与热键状态不变。
 - 代码与文档语言约定：
   - 源代码中的标识符与注释统一使用英文，便于英语使用者维护；
   - 用户界面文案通过本地化层维护中英双语；

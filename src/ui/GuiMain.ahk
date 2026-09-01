@@ -1,6 +1,6 @@
 ; ============================================================================
 ; AHKeyMap - Main window construction module
-; Builds the main window UI
+; Builds the main window UI and owns rendering from application state
 ; ============================================================================
 
 ; Declare globals shared across modules
@@ -20,8 +20,7 @@ global BtnEditMapping
 global BtnCopyMapping
 global BtnDeleteMapping
 global BtnRunAsAdmin
-global HotkeyConflicts
-global HotkeyRegErrors
+global LastReloadResult
 
 ; ============================================================================
 ; GUI construction - main window
@@ -117,12 +116,176 @@ BuildMainGui() {
     tray.Add(L("Tray.LanguageMenu"), langMenu)
     tray.Add()
 
-    tray.Add(adminTrayItem, OnRunAsAdmin)
-    if A_IsAdmin
-        tray.Disable(adminTrayItem)
-    tray.Add()
-    tray.Add(exitLabel, OnTrayExit)
-    tray.Default := showMainLabel
+    ; Register the render seam: every store change re-renders this window
+    ConfigStore.Instance.SetOnChanged(RenderFromState)
+}
+
+; ============================================================================
+; Render-from-state entry (registered as the store's OnChanged callback)
+; ============================================================================
+
+; One render entry: rebuild every main-window widget from application state.
+; Called with the ReloadAllHotkeys result ({conflicts, regErrors}) after
+; store mutations, or with "" (keep the last result) for render-only events
+; such as selection or language changes. Runs only when the window exists.
+RenderFromState(reloadResult) {
+    if (MainGui = "")
+        return
+
+    if IsObject(reloadResult)
+        global LastReloadResult := reloadResult
+
+    RefreshConfigList()
+    RefreshScopeControls()
+    RefreshMappingLV()
+    UpdateStatusText()
+}
+
+; Refresh config dropdown from the config list on disk (no hotkey reload)
+; Keeps the store selection in sync with what the dropdown shows
+RefreshConfigList() {
+    configs := GetConfigList()
+    items := []
+    selectIdx := 0
+    selectedName := ConfigStore.Instance.SelectedName
+    for i, name in configs {
+        items.Push(name)
+        if (name = selectedName)
+            selectIdx := i
+    }
+
+    ConfigDDL.Delete()
+    if (items.Length > 0) {
+        ConfigDDL.Add(items)
+        if (selectIdx > 0)
+            ConfigDDL.Choose(selectIdx)
+        else
+            ConfigDDL.Choose(1)
+        ; Adopt the dropdown item as the selection (Choose does not fire Change)
+        ConfigStore.Instance.Select(configs[ConfigDDL.Value])
+    } else {
+        ConfigStore.Instance.Select("")
+    }
+}
+
+; Refresh the scope text and enable checkbox from the selected config
+RefreshScopeControls() {
+    cfg := ConfigStore.Instance.Selected()
+    if (cfg != "") {
+        ProcessText.Value := FormatProcessDisplay(cfg["processMode"], cfg["processList"], cfg["excludeProcessList"])
+        EnabledCB.Value := cfg["enabled"]
+        EnabledCB.Enabled := true
+    } else {
+        ProcessText.Value := L("Config.Scope.None")
+        EnabledCB.Value := 0
+        EnabledCB.Enabled := false
+    }
+}
+
+; Refresh mapping ListView rows from the selected config's mappings
+RefreshMappingLV() {
+    rows := BuildMappingRows(ConfigStore.Instance.SelectedMappings())
+    MappingLV.Delete()
+    for _, row in rows
+        MappingLV.Add("", row.idx, row.modifier, row.source, row.target, row.hold, row.mode, row.delay, row.interval)
+    ; Auto-adjust column widths
+    loop 8
+        MappingLV.ModifyCol(A_Index, "AutoHdr")
+}
+
+; Update the status bar from the store plus the last reload result
+UpdateStatusText() {
+    vm := BuildStatusSummary(AllConfigs, LastReloadResult)
+    global StatusHasWarning := vm.hasWarning
+
+    if (vm.hasWarning) {
+        StatusText.SetFont("cE07B00")
+        StatusDetailLink.Opt("-Hidden")
+    } else {
+        StatusText.SetFont("cGray")
+        StatusDetailLink.Opt("+Hidden")
+        SetStatusDetailHover(false)
+    }
+    StatusText.Value := vm.text
+}
+
+; ============================================================================
+; Pure view-model builders (unit-tested without a window)
+; ============================================================================
+
+; Status summary text plus the warning flag
+; Returns {text: "...", hasWarning: true|false}
+BuildStatusSummary(allConfigs, reloadResult) {
+    conflicts := []
+    regErrors := []
+    if IsObject(reloadResult) {
+        conflicts := reloadResult.conflicts
+        regErrors := reloadResult.regErrors
+    }
+
+    enabledCount := 0
+    totalCount := allConfigs.Length
+    for _, cfg in allConfigs {
+        if (cfg["enabled"])
+            enabledCount++
+    }
+
+    statusStr := L("Config.Status.EnabledSummary", enabledCount, totalCount)
+    hasWarning := false
+    if (conflicts.Length > 0) {
+        statusStr .= L("Config.Status.ConflictSuffix", conflicts.Length)
+        hasWarning := true
+    }
+    if (regErrors.Length > 0) {
+        statusStr .= L("Config.Status.RegErrorSuffix", regErrors.Length)
+        hasWarning := true
+    }
+
+    return { text: statusStr, hasWarning: hasWarning }
+}
+
+; Mapping rows for the ListView (one row object per mapping, in order)
+; Each row: {idx, modifier, source, target, hold, mode, delay, interval}
+BuildMappingRows(mappings) {
+    rows := []
+    for idx, mapping in mappings {
+        holdText := mapping["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
+        modDisplay := mapping["ModifierKey"] != "" ? KeyToDisplay(mapping["ModifierKey"]) : ""
+        ptText := ""
+        if (mapping["ModifierKey"] != "")
+            ptText := mapping["PassthroughMod"] ? L("Config.Mapping.ModMode.Pass") : L("Config.Mapping.ModMode.Block")
+        delayText := mapping["HoldRepeat"] ? mapping["RepeatDelay"] : ""
+        intervalText := mapping["HoldRepeat"] ? mapping["RepeatInterval"] : ""
+        rows.Push({
+            idx: idx,
+            modifier: modDisplay,
+            source: KeyToDisplay(mapping["SourceKey"]),
+            target: KeyToDisplay(mapping["TargetKey"]),
+            hold: holdText,
+            mode: ptText,
+            delay: delayText,
+            interval: intervalText
+        })
+    }
+    return rows
+}
+
+; Format process scope for display (using parsed arrays)
+FormatProcessDisplay(processMode, processList, excludeProcessList) {
+    if (processMode = "include") {
+        if (processList.Length = 0)
+            return L("Config.Scope.Global")
+        if (processList.Length = 1)
+            return L("Config.Scope.Include.Single", processList[1])
+        return L("Config.Scope.Include.Multi", processList[1], processList.Length - 1)
+    } else if (processMode = "exclude") {
+        if (excludeProcessList.Length = 0)
+            return L("Config.Scope.Global")
+        if (excludeProcessList.Length = 1)
+            return L("Config.Scope.Exclude.Single", excludeProcessList[1])
+        return L("Config.Scope.Exclude.Multi", excludeProcessList[1], excludeProcessList.Length - 1)
+    }
+    return L("Config.Scope.Global")
 }
 
 ; Main window resize handler
@@ -233,22 +396,36 @@ OnMainSetCursor(wParam, lParam, msg, hwnd) {
 
 ; Show detailed hotkey conflicts and registration errors when clicking status detail
 OnStatusTextClick(*) {
-    if (HotkeyConflicts.Length = 0 && HotkeyRegErrors.Length = 0)
+    details := BuildStatusDetails(LastReloadResult)
+    if (details = "")
         return
+    MsgBox(details, APP_NAME, "Icon!")
+}
+
+; Detail-popup text from the last reload result ("" when there is nothing to show)
+BuildStatusDetails(reloadResult) {
+    conflicts := []
+    regErrors := []
+    if IsObject(reloadResult) {
+        conflicts := reloadResult.conflicts
+        regErrors := reloadResult.regErrors
+    }
+    if (conflicts.Length = 0 && regErrors.Length = 0)
+        return ""
 
     details := ""
-    if (HotkeyConflicts.Length > 0) {
+    if (conflicts.Length > 0) {
         details .= L("GuiMain.Status.ConflictsHeader")
-        for _, c in HotkeyConflicts
+        for _, c in conflicts
             details .= Format(L("GuiMain.Status.ConflictItem"), c.hotkey, c.config1, c.config2)
     }
-    if (HotkeyRegErrors.Length > 0) {
+    if (regErrors.Length > 0) {
         if (details != "")
             details .= "`n"
         details .= L("GuiMain.Status.RegErrorsHeader")
-        for _, k in HotkeyRegErrors
+        for _, k in regErrors
             details .= Format(L("GuiMain.Status.RegErrorItem"), k)
     }
-    MsgBox(RTrim(details, "`n"), APP_NAME, "Icon!")
+    return RTrim(details, "`n")
 }
 
