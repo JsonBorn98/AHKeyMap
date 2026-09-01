@@ -170,3 +170,17 @@ State file (`configs/_state.ini`): `[State]` section (`LastConfig`, `UILanguage`
 - Do not add new tooling unless requested.
 - If you encounter unexpected local changes, stop and ask.
 - After feature/fix work, ask whether docs should be updated and whether a commit is desired.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root (created lazily). See `docs/agents/domain.md`.
