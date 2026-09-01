@@ -1,6 +1,6 @@
 ; ============================================================================
 ; AHKeyMap - Config management module
-; Load, save and manage config INI files
+; Pure config/state INI I/O plus the main-window render functions
 ; ============================================================================
 
 ; Globals shared across modules
@@ -9,15 +9,6 @@ global SCRIPT_DIR
 global CONFIG_DIR
 global STATE_FILE
 global AllConfigs
-global CurrentConfigName
-global CurrentConfigFile
-global CurrentProcessMode
-global CurrentProcess
-global CurrentProcessList
-global CurrentExcludeProcess
-global CurrentExcludeProcessList
-global CurrentConfigEnabled
-global Mappings
 global ConfigDDL
 global EnabledCB
 global ProcessText
@@ -118,69 +109,6 @@ LoadConfigData(configName) {
     return cfg
 }
 
-; Find config index by name in AllConfigs (0 = not found)
-FindConfigIndex(configName) {
-    for i, cfg in AllConfigs {
-        if (cfg["name"] = configName)
-            return i
-    }
-    return 0
-}
-
-; Sync current GUI editing state back into AllConfigs
-SyncCurrentToAllConfigs() {
-    if (CurrentConfigName = "")
-        return
-    idx := FindConfigIndex(CurrentConfigName)
-    if (idx = 0)
-        return
-    cfg := AllConfigs[idx]
-    cfg["processMode"] := CurrentProcessMode
-    cfg["process"] := CurrentProcess
-    cfg["processList"] := CurrentProcessList
-    cfg["excludeProcess"] := CurrentExcludeProcess
-    cfg["excludeProcessList"] := CurrentExcludeProcessList
-    cfg["enabled"] := CurrentConfigEnabled
-    cfg["mappings"] := Mappings
-}
-
-; Refresh config dropdown (GUI only, does not affect hotkeys)
-RefreshConfigList(selectName := "") {
-    configs := GetConfigList()
-    items := []
-    selectIdx := 0
-    for i, name in configs {
-        items.Push(name)
-        if (name = selectName)
-            selectIdx := i
-    }
-
-    ConfigDDL.Delete()
-    if (items.Length > 0) {
-        ConfigDDL.Add(items)
-        if (selectIdx > 0)
-            ConfigDDL.Choose(selectIdx)
-        else
-            ConfigDDL.Choose(1)
-        OnConfigSelect(ConfigDDL, "")
-    } else {
-        global CurrentConfigName := ""
-        global CurrentConfigFile := ""
-        global CurrentProcessMode := "global"
-        global CurrentProcess := ""
-        global CurrentProcessList := []
-        global CurrentExcludeProcess := ""
-        global CurrentExcludeProcessList := []
-        global CurrentConfigEnabled := true
-        ProcessText.Value := L("Config.Scope.None")
-        EnabledCB.Value := 0
-        EnabledCB.Enabled := false
-        global Mappings := []
-        RefreshMappingLV()
-    }
-    UpdateStatusText()
-}
-
 ; Parse process string into an array
 ParseProcessList(procStr) {
     result := []
@@ -196,6 +124,117 @@ ParseProcessList(procStr) {
 
 IsValidConfigName(configName) {
     return !RegExMatch(configName, '[\\/:*?"<>|=\[\]]')
+}
+
+; Serialize one config record to its INI file (atomic write: temp file then replace)
+SaveConfig(cfg) {
+    configFile := cfg["file"]
+    tempFile := configFile ".tmp"
+
+    ; Step 1: write all content into a temp file (section by section)
+    try {
+        if FileExist(tempFile)
+            FileDelete(tempFile)
+
+        metaPairs := "Name=" cfg["name"]
+        metaPairs .= "`nProcessMode=" cfg["processMode"]
+        metaPairs .= "`nProcess=" cfg["process"]
+        metaPairs .= "`nExcludeProcess=" cfg["excludeProcess"]
+        IniWrite(metaPairs, tempFile, "Meta")
+
+        for idx, mapping in cfg["mappings"] {
+            pairs := "ModifierKey=" mapping["ModifierKey"]
+            pairs .= "`nSourceKey=" mapping["SourceKey"]
+            pairs .= "`nTargetKey=" mapping["TargetKey"]
+            pairs .= "`nHoldRepeat=" mapping["HoldRepeat"]
+            pairs .= "`nRepeatDelay=" mapping["RepeatDelay"]
+            pairs .= "`nRepeatInterval=" mapping["RepeatInterval"]
+            pairs .= "`nPassthroughMod=" mapping["PassthroughMod"]
+            IniWrite(pairs, tempFile, "Mapping" idx)
+        }
+    } catch as e {
+        ; If writing temp file fails, original file stays intact; clean up tmp
+        try FileDelete(tempFile)
+        MsgBox(Format(L("Config.SaveError.WriteTemp"), e.Message, configFile), APP_NAME, "IconX")
+        return
+    }
+
+    ; Step 2: replace original file with temp file (FileMove overwrite mode)
+    try {
+        FileMove(tempFile, configFile, 1)
+    } catch as e {
+        try FileDelete(tempFile)
+        MsgBox(Format(L("Config.SaveError.Replace"), e.Message, configFile), APP_NAME, "IconX")
+    }
+}
+
+; Save enabled state for all configs to _state.ini (atomic write)
+SaveEnabledStates() {
+    tempFile := STATE_FILE ".tmp"
+    try {
+        ; Ensure config directory exists (defensive: in case it was removed)
+        if !DirExist(CONFIG_DIR)
+            DirCreate(CONFIG_DIR)
+
+        if FileExist(tempFile)
+            FileDelete(tempFile)
+
+        ; Preserve [State] section and always write LastConfig / UILanguage
+        lastConfig := ""
+        if FileExist(STATE_FILE)
+            lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
+        IniWrite(lastConfig, tempFile, "State", "LastConfig")
+
+        ; Persist UI language
+        global CurrentLangCode
+        IniWrite(CurrentLangCode, tempFile, "State", "UILanguage")
+
+        for _, cfg in AllConfigs
+            IniWrite(cfg["enabled"] ? "1" : "0", tempFile, "EnabledConfigs", cfg["name"])
+
+        FileMove(tempFile, STATE_FILE, 1)
+    } catch as e {
+        try FileDelete(tempFile)
+        MsgBox(Format(L("Config.SaveEnabledStatesError"), e.Message), APP_NAME, "IconX")
+    }
+}
+
+; ============================================================================
+; Main-window render functions
+; ============================================================================
+
+; Refresh config dropdown (GUI only, does not affect hotkeys)
+RefreshConfigList(selectName := "") {
+    configs := GetConfigList()
+    items := []
+    selectIdx := 0
+    for i, name in configs {
+        items.Push(name)
+        if (name = selectName)
+            selectIdx := i
+    }
+
+    if !IsObject(ConfigDDL) {
+        ; No GUI (headless tests): just track the selection in the store
+        if (selectIdx > 0)
+            ConfigStore.Instance.Select(configs[selectIdx])
+        else
+            ConfigStore.Instance.Select("")
+        return
+    }
+
+    ConfigDDL.Delete()
+    if (items.Length > 0) {
+        ConfigDDL.Add(items)
+        if (selectIdx > 0)
+            ConfigDDL.Choose(selectIdx)
+        else
+            ConfigDDL.Choose(1)
+        OnConfigSelect(ConfigDDL, "")
+    } else {
+        ConfigStore.Instance.Select("")
+    }
+    UpdateStatusText()
 }
 
 ; Format process scope for display (using parsed arrays)
@@ -252,125 +291,12 @@ UpdateStatusText() {
     StatusText.Value := statusStr
 }
 
-; Load specified config into GUI (does not affect hotkey registration)
-LoadConfigToGui(configName) {
-    idx := FindConfigIndex(configName)
-    if (idx = 0)
-        return
-
-    global CurrentConfigName := configName
-    global CurrentConfigFile := CONFIG_DIR "\" configName ".ini"
-
-    cfg := AllConfigs[idx]
-    global CurrentProcessMode := cfg["processMode"]
-    global CurrentProcess := cfg["process"]
-    global CurrentProcessList := cfg["processList"]
-    global CurrentExcludeProcess := cfg["excludeProcess"]
-    global CurrentExcludeProcessList := cfg["excludeProcessList"]
-    global CurrentConfigEnabled := cfg["enabled"]
-
-    global Mappings := []
-    for _, m in cfg["mappings"] {
-        newM := Map()
-        for k, v in m
-            newM[k] := v
-        Mappings.Push(newM)
-    }
-
-    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcessList, CurrentExcludeProcessList)
-    EnabledCB.Value := CurrentConfigEnabled
-    EnabledCB.Enabled := true
-
-    RefreshMappingLV()
-
-    ; Persist last viewed config name into _state.ini
-    try IniWrite(configName, STATE_FILE, "State", "LastConfig")
-}
-
-; Save current config to file (atomic write: temp file then replace)
-SaveConfig() {
-    if (CurrentConfigName = "" || CurrentConfigFile = "")
-        return
-
-    tempFile := CurrentConfigFile ".tmp"
-
-    ; Step 1: write all content into a temp file (section by section)
-    try {
-        if FileExist(tempFile)
-            FileDelete(tempFile)
-
-        metaPairs := "Name=" CurrentConfigName
-        metaPairs .= "`nProcessMode=" CurrentProcessMode
-        metaPairs .= "`nProcess=" CurrentProcess
-        metaPairs .= "`nExcludeProcess=" CurrentExcludeProcess
-        IniWrite(metaPairs, tempFile, "Meta")
-
-        for idx, mapping in Mappings {
-            pairs := "ModifierKey=" mapping["ModifierKey"]
-            pairs .= "`nSourceKey=" mapping["SourceKey"]
-            pairs .= "`nTargetKey=" mapping["TargetKey"]
-            pairs .= "`nHoldRepeat=" mapping["HoldRepeat"]
-            pairs .= "`nRepeatDelay=" mapping["RepeatDelay"]
-            pairs .= "`nRepeatInterval=" mapping["RepeatInterval"]
-            pairs .= "`nPassthroughMod=" mapping["PassthroughMod"]
-            IniWrite(pairs, tempFile, "Mapping" idx)
-        }
-    } catch as e {
-        ; If writing temp file fails, original file stays intact; clean up tmp
-        try FileDelete(tempFile)
-        MsgBox(Format(L("Config.SaveError.WriteTemp"), e.Message, CurrentConfigFile), APP_NAME, "IconX")
-        return
-    }
-
-    ; Step 2: replace original file with temp file (FileMove overwrite mode)
-    try {
-        FileMove(tempFile, CurrentConfigFile, 1)
-    } catch as e {
-        try FileDelete(tempFile)
-        MsgBox(Format(L("Config.SaveError.Replace"), e.Message, CurrentConfigFile), APP_NAME, "IconX")
-        return
-    }
-
-    ; Sync back into AllConfigs and save enabled states
-    SyncCurrentToAllConfigs()
-    SaveEnabledStates()
-}
-
-; Save enabled state for all configs to _state.ini (atomic write)
-SaveEnabledStates() {
-    tempFile := STATE_FILE ".tmp"
-    try {
-        ; Ensure config directory exists (defensive: in case it was removed)
-        if !DirExist(CONFIG_DIR)
-            DirCreate(CONFIG_DIR)
-
-        if FileExist(tempFile)
-            FileDelete(tempFile)
-
-        ; Preserve [State] section and always write LastConfig / UILanguage
-        lastConfig := ""
-        if FileExist(STATE_FILE)
-            lastConfig := IniRead(STATE_FILE, "State", "LastConfig", "")
-        IniWrite(lastConfig, tempFile, "State", "LastConfig")
-
-        ; Persist UI language
-        global CurrentLangCode
-        IniWrite(CurrentLangCode, tempFile, "State", "UILanguage")
-
-        for _, cfg in AllConfigs
-            IniWrite(cfg["enabled"] ? "1" : "0", tempFile, "EnabledConfigs", cfg["name"])
-
-        FileMove(tempFile, STATE_FILE, 1)
-    } catch as e {
-        try FileDelete(tempFile)
-        MsgBox(Format(L("Config.SaveEnabledStatesError"), e.Message), APP_NAME, "IconX")
-    }
-}
-
-; Refresh mapping ListView display
+; Refresh mapping ListView display (no-op without a GUI)
 RefreshMappingLV() {
+    if !IsObject(MappingLV)
+        return
     MappingLV.Delete()
-    for idx, mapping in Mappings {
+    for idx, mapping in ConfigStore.Instance.SelectedMappings() {
         holdText := mapping["HoldRepeat"] ? L("Config.Mapping.HoldYes") : L("Config.Mapping.HoldNo")
         modDisplay := mapping["ModifierKey"] != "" ? KeyToDisplay(mapping["ModifierKey"]) : ""
         ptText := ""
@@ -392,4 +318,3 @@ RefreshMappingLV() {
     loop 8
         MappingLV.ModifyCol(A_Index, "AutoHdr")
 }
-

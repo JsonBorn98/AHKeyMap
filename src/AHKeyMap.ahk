@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.9.4
+;@Ahk2Exe-SetVersion 2.9.5
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon ..\assets\icon.ico
 
@@ -23,7 +23,7 @@ if !IsSet(__AHKM_CONFIG_DIR)
     global __AHKM_CONFIG_DIR := ""
 
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.9.4"
+global APP_VERSION := "2.9.5"
 global SCRIPT_DIR := A_ScriptDir
 global APP_ROOT := (A_IsCompiled ? SCRIPT_DIR : SCRIPT_DIR "\..")
 global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : APP_ROOT "\configs")
@@ -41,17 +41,8 @@ global CONTEXT_MENU_DISMISS_DELAY := 10 ; context menu dismissal delay (ms)
 global DEFAULT_REPEAT_DELAY := 300      ; default long-press delay (ms)
 global DEFAULT_REPEAT_INTERVAL := 50    ; default long-press interval (ms)
 
-; Config-related globals
+; Config-related globals (AllConfigs is owned and mutated by ConfigStore)
 global AllConfigs := []
-global CurrentConfigName := ""
-global CurrentConfigFile := ""
-global CurrentProcessMode := "global"
-global CurrentProcess := ""
-global CurrentProcessList := []
-global CurrentExcludeProcess := ""
-global CurrentExcludeProcessList := []
-global CurrentConfigEnabled := true
-global Mappings := []
 
 ; GUI control references
 global MainGui := ""
@@ -106,6 +97,7 @@ global ProcessPickerGui := ""
 ; Include modules
 ; ============================================================================
 #Include "core/Config.ahk"
+#Include "core/ConfigStore.ahk"
 #Include "shared/Utils.ahk"
 #Include "core/Localization.ahk"
 #Include "core/PathCEngine.ahk"
@@ -217,14 +209,13 @@ StartApp() {
 ; Rebuild main window for language switch (soft reload)
 RebuildMainWindowForLanguageChange() {
     global MainGui
-    global CurrentConfigName
     global EditGui
     global CaptureGui
     global ProcessPickerOpen
     global ProcessPickerGui
 
     ; Record current config name and window position/size
-    currentConfig := CurrentConfigName
+    currentConfig := ConfigStore.Instance.SelectedName
     x := 0, y := 0, w := 0, h := 0
     try {
         if (MainGui != "")
@@ -256,9 +247,8 @@ RebuildMainWindowForLanguageChange() {
     BuildMainGui()
 
     ; Refresh config list and GUI state with the previously selected config
-    ; Clear CurrentConfigName so OnConfigSelect reloads config and mapping list
-    global CurrentConfigName
-    CurrentConfigName := ""
+    ; Clear the store selection so OnConfigSelect reloads config and mapping list
+    ConfigStore.Instance.Select("")
     RefreshConfigList(currentConfig)
 
     ; Refresh status bar with the new language

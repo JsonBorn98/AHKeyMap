@@ -9,46 +9,29 @@ global __AHKM_CONFIG_DIR := A_Temp "\AHKeyMapTests\" A_ScriptName "-" A_TickCoun
 
 CurrentLangCode := "en-US"
 
-RegisterTest("SaveConfig writes atomically and round-trips mappings", Test_SaveConfig_WritesAtomicallyAndRoundTrips)
+RegisterTest("Store chokepoint persists atomically and round-trips mappings", Test_StoreChokepoint_PersistsAtomicallyAndRoundTrips)
 RegisterTest("SaveEnabledStates preserves LastConfig and UILanguage", Test_SaveEnabledStates_PreservesStateMetadata)
 RegisterTest("LoadAllConfigs reuses the existing AllConfigs array", Test_LoadAllConfigs_ReusesExistingArrayObject)
-RegisterTest("SaveConfig with empty mappings writes Meta only", Test_SaveConfig_EmptyMappings_WritesMetaOnly)
-RegisterTest("SaveConfig with many mappings preserves order", Test_SaveConfig_ManyMappings_PreservesOrder)
+RegisterTest("Store SetScope writes Meta only for empty global config", Test_StoreSetScope_Global_WritesMetaOnly)
+RegisterTest("Store AddMapping preserves order across many mappings", Test_StoreAddMapping_ManyMappings_PreservesOrder)
 RegisterTest("LoadConfigData returns empty for nonexistent file", Test_LoadConfigData_NonexistentFile_ReturnsEmpty)
 
 RunRegisteredTests()
 
-Test_SaveConfig_WritesAtomicallyAndRoundTrips() {
-    global CurrentConfigName
-    global CurrentConfigFile
-    global CurrentProcessMode
-    global CurrentProcess
-    global CurrentProcessList
-    global CurrentExcludeProcess
-    global CurrentExcludeProcessList
-    global CurrentConfigEnabled
-    global Mappings
-    global AllConfigs
-
+Test_StoreChokepoint_PersistsAtomicallyAndRoundTrips() {
+    store := ConfigStore.Instance
     roundTripMappings := [MakeMapping("CapsLock", "F13", "^c", 1, 120, 40, 0)]
 
-    CurrentConfigName := "RoundTrip"
-    CurrentConfigFile := CONFIG_DIR "\RoundTrip.ini"
-    CurrentProcessMode := "include"
-    CurrentProcess := "notepad.exe|Code.exe"
-    CurrentProcessList := ParseProcessList(CurrentProcess)
-    CurrentExcludeProcess := ""
-    CurrentExcludeProcessList := []
-    CurrentConfigEnabled := true
-    Mappings.Length := 0
-    Mappings.Push(roundTripMappings[1])
+    SeedConfigFile("RoundTrip", "global", "", "", [], 1)
+    LoadAllConfigs()
+    store.Select("RoundTrip")
 
-    AllConfigs.Push(BuildConfigRecord("RoundTrip", CurrentProcessMode, CurrentProcess, "", true, roundTripMappings))
+    store.SetScope("include", "notepad.exe|Code.exe")
+    store.AddMapping(roundTripMappings[1])
 
-    SaveConfig()
-
-    AssertFileExists(CurrentConfigFile)
-    AssertFalse(FileExist(CurrentConfigFile ".tmp"), "Config temp file should be cleaned up after save.")
+    configFile := CONFIG_DIR "\RoundTrip.ini"
+    AssertFileExists(configFile)
+    AssertFalse(FileExist(configFile ".tmp"), "Config temp file should be cleaned up after save.")
 
     loaded := LoadConfigData("RoundTrip")
     AssertEq("include", loaded["processMode"])
@@ -59,11 +42,15 @@ Test_SaveConfig_WritesAtomicallyAndRoundTrips() {
     AssertEq("^c", loaded["mappings"][1]["TargetKey"])
     AssertEq(120, loaded["mappings"][1]["RepeatDelay"])
     AssertTrue(loaded["enabled"])
+
+    ; The store selection points at the live record inside AllConfigs
+    AssertEq("RoundTrip", store.SelectedName)
+    AssertEq("RoundTrip", store.Selected()["name"])
+    AssertEq(1, store.SelectedMappings().Length)
 }
 
 Test_SaveEnabledStates_PreservesStateMetadata() {
     global CurrentLangCode
-    global AllConfigs
 
     IniWrite("SmokeConfig", STATE_FILE, "State", "LastConfig")
     CurrentLangCode := "zh-CN"
@@ -82,8 +69,6 @@ Test_SaveEnabledStates_PreservesStateMetadata() {
 }
 
 Test_LoadAllConfigs_ReusesExistingArrayObject() {
-    global AllConfigs
-
     originalPtr := ObjPtr(AllConfigs)
 
     SeedConfigFile("Alpha", "global", "", "", [MakeMapping("", "F13", "^c")], 1)
@@ -98,49 +83,28 @@ Test_LoadAllConfigs_ReusesExistingArrayObject() {
     AssertFalse(AllConfigs[2]["enabled"])
 }
 
-Test_SaveConfig_EmptyMappings_WritesMetaOnly() {
-    global CurrentConfigName
-    global CurrentConfigFile
-    global CurrentProcessMode
-    global CurrentProcess
-    global CurrentProcessList
-    global CurrentExcludeProcess
-    global CurrentExcludeProcessList
-    global CurrentConfigEnabled
-    global Mappings
-    global AllConfigs
+Test_StoreSetScope_Global_WritesMetaOnly() {
+    store := ConfigStore.Instance
 
-    CurrentConfigName := "EmptyCfg"
-    CurrentConfigFile := CONFIG_DIR "\EmptyCfg.ini"
-    CurrentProcessMode := "global"
-    CurrentProcess := ""
-    CurrentProcessList := []
-    CurrentExcludeProcess := ""
-    CurrentExcludeProcessList := []
-    CurrentConfigEnabled := true
-    Mappings.Length := 0
+    SeedConfigFile("EmptyCfg", "global", "", "", [], 1)
+    LoadAllConfigs()
+    store.Select("EmptyCfg")
 
-    AllConfigs.Push(BuildConfigRecord("EmptyCfg", "global", "", "", true, []))
+    store.SetScope("global", "")
 
-    SaveConfig()
-    AssertFileExists(CurrentConfigFile)
+    AssertFileExists(CONFIG_DIR "\EmptyCfg.ini")
 
     loaded := LoadConfigData("EmptyCfg")
     AssertEq("global", loaded["processMode"])
     AssertEq(0, loaded["mappings"].Length)
 }
 
-Test_SaveConfig_ManyMappings_PreservesOrder() {
-    global CurrentConfigName
-    global CurrentConfigFile
-    global CurrentProcessMode
-    global CurrentProcess
-    global CurrentProcessList
-    global CurrentExcludeProcess
-    global CurrentExcludeProcessList
-    global CurrentConfigEnabled
-    global Mappings
-    global AllConfigs
+Test_StoreAddMapping_ManyMappings_PreservesOrder() {
+    store := ConfigStore.Instance
+
+    SeedConfigFile("ManyCfg", "global", "", "", [], 1)
+    LoadAllConfigs()
+    store.Select("ManyCfg")
 
     manyMappings := [
         MakeMapping("", "F13", "^a"),
@@ -149,22 +113,8 @@ Test_SaveConfig_ManyMappings_PreservesOrder() {
         MakeMapping("RAlt", "F16", "^d", 1, 200, 40, 1),
         MakeMapping("", "F17", "^e")
     ]
-
-    CurrentConfigName := "ManyCfg"
-    CurrentConfigFile := CONFIG_DIR "\ManyCfg.ini"
-    CurrentProcessMode := "include"
-    CurrentProcess := "notepad.exe"
-    CurrentProcessList := ParseProcessList(CurrentProcess)
-    CurrentExcludeProcess := ""
-    CurrentExcludeProcessList := []
-    CurrentConfigEnabled := true
-    Mappings.Length := 0
     for _, m in manyMappings
-        Mappings.Push(m)
-
-    AllConfigs.Push(BuildConfigRecord("ManyCfg", "include", "notepad.exe", "", true, manyMappings))
-
-    SaveConfig()
+        store.AddMapping(m)
 
     loaded := LoadConfigData("ManyCfg")
     AssertEq(5, loaded["mappings"].Length)

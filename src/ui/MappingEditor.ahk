@@ -5,9 +5,7 @@
 
 ; Declare globals shared across modules
 global APP_NAME
-global Mappings
 global MainGui
-global CurrentConfigName
 global DEFAULT_REPEAT_DELAY
 global DEFAULT_REPEAT_INTERVAL
 
@@ -63,8 +61,9 @@ ShowEditMappingGui() {
     global EditPassthroughCB := EditGui.AddCheckbox("x10 y175 w370 h23 vPassthroughMod", L("MappingEditor.PassthroughLabel"))
 
     ; In edit mode, populate fields from existing mapping
-    if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {
-        m := Mappings[EditingIndex]
+    mappings := ConfigStore.Instance.SelectedMappings()
+    if (EditingIndex > 0 && EditingIndex <= mappings.Length) {
+        m := mappings[EditingIndex]
         EditModifierEdit.Value := KeyToDisplay(m["ModifierKey"])
         EditModifierEdit.ahkKey := m["ModifierKey"]
         EditSourceEdit.Value := KeyToDisplay(m["SourceKey"])
@@ -133,14 +132,11 @@ OnEditMappingOK(*) {
     mapping["RepeatInterval"] := repeatInterval
     mapping["PassthroughMod"] := EditPassthroughCB.Value ? 1 : 0
 
-    if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {
-        Mappings[EditingIndex] := mapping
+    if (EditingIndex > 0 && EditingIndex <= ConfigStore.Instance.SelectedMappings().Length) {
+        ConfigStore.Instance.ReplaceMapping(EditingIndex, mapping)
     } else {
-        Mappings.Push(mapping)
+        ConfigStore.Instance.AddMapping(mapping)
     }
 
-    SaveConfig()
-    RefreshMappingLV()
-    ReloadConfigHotkeys(CurrentConfigName)
     DestroyModalGui(EditGui)
 }

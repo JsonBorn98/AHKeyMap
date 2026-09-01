@@ -21,7 +21,8 @@ Audience: coding agents working on AHKeyMap.
 ## Repo map
 ```text
 src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
-src/core/Config.ahk        — config/state INI I/O and atomic writes
+src/core/Config.ahk        — config/state INI I/O, atomic writes, main-window render functions
+src/core/ConfigStore.ahk   — config working copy owner: AllConfigs, selection, mutation chokepoint
 src/core/Localization.ahk  — `L(key, args*)`, `BuildEnPack()`, `BuildZhPack()`
 src/core/PathCEngine.ahk   — Path C engine (sessions, routing, repeat timers, own hotkey registration)
 src/core/HotkeyEngine.ahk  — Path A/B registration, conflicts, process checkers
@@ -82,14 +83,15 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 - `src/AHKeyMap.ahk` owns the entire `#Include` list. Do not add cross-includes from leaf modules.
 - Include order follows dependency flow:
   1. `core/Config.ahk`
-  2. `shared/Utils.ahk`
-  3. `core/Localization.ahk`
-  4. `core/PathCEngine.ahk`
-  5. `core/HotkeyEngine.ahk`
-  6. `core/KeyCapture.ahk`
-  7. `ui/GuiMain.ahk`
-  8. `ui/MappingEditor.ahk`
-  9. `ui/GuiEvents.ahk`
+  2. `core/ConfigStore.ahk`
+  3. `shared/Utils.ahk`
+  4. `core/Localization.ahk`
+  5. `core/PathCEngine.ahk`
+  6. `core/HotkeyEngine.ahk`
+  7. `core/KeyCapture.ahk`
+  8. `ui/GuiMain.ahk`
+  9. `ui/MappingEditor.ahk`
+  10. `ui/GuiEvents.ahk`
 - Only `src/AHKeyMap.ahk` initializes globals with `:=`; other modules may declare `global VarName` but must not reinitialize shared state.
 
 ## Code style
@@ -137,6 +139,14 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 - Process scope priority is `include > exclude > global`; an empty include/exclude list effectively behaves as global.
 - Preserve Path C wheel-routing and `RButton` gesture behavior.
 - Keep `AllProcessCheckers` references alive for closure lifetime.
+
+### Config store conventions
+- `src/core/ConfigStore.ahk` owns the config working copy: the `AllConfigs` array, the current selection (`ConfigStore.Instance.SelectedName`), and every mutation.
+- Read the selected config via `ConfigStore.Instance.Selected()` / `SelectedMappings()`; never keep a mirrored set of `Current*` globals.
+- Every mutation goes through one store method (`Select`, `SetEnabled`, `SetScope`, `AddMapping`, `ReplaceMapping`, `DeleteMapping`, `CreateConfig`, `CopyConfig`, `DeleteConfig`); each runs the same chokepoint internally: atomic persist (`SaveConfig` + `SaveEnabledStates`) → `ReloadAllHotkeys()` → render.
+- GUI handlers shrink to input validation plus one store call; they must not persist or reload on their own.
+- `src/core/Config.ahk` is pure INI I/O plus the main-window render functions; it does not own selection state.
+- Tests reset the store with `ResetConfigStoreForTests()` (TestBase calls it from `ResetAppState`).
 
 ## Common pitfalls
 - `global Foo := value` inside a module overwrites the main-entry value at `#Include` time.

@@ -11,7 +11,8 @@
 
 ## 模块职责
 - `src/AHKeyMap.ahk`：全局变量初始化、`APP_ROOT` 解析、模块 `#Include`、启动入口
-- `src/core/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
+- `src/core/Config.ahk`：纯 INI I/O（加载/保存、配置列表枚举、启用状态持久化）与主窗口渲染函数；`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据
+- `src/core/ConfigStore.ahk`：配置工作副本的唯一所有者；持有 `AllConfigs`、当前选中项与全部变更入口（惰性单例 `ConfigStore.Instance`）
 - `src/core/Localization.ahk`：本地化语言包与 `L(key, args*)` 辅助函数
 - `src/ui/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
 - `src/ui/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
@@ -25,6 +26,15 @@
 - 所有全局变量只在 `src/AHKeyMap.ahk` 中定义并初始化。
 - 模块中仅用 `global VarName` 进行引用声明，不重复初始化（重复赋值会在 `#Include` 时覆盖主入口的值）。
 - `src/AHKeyMap.ahk` 通过 `APP_ROOT` 区分源码模式与编译模式：源码模式下根目录为仓库根，编译模式下根目录为 `AHKeyMap.exe` 所在目录，因此两种模式都会在各自根目录下使用 `configs/`。
+
+## 配置存储（ConfigStore）
+- 选中配置只存在一份：`AllConfigs` 中的记录本身；不再有 `Current*` 全局变量镜像。
+- `src/core/ConfigStore.ahk`（惰性单例 `ConfigStore.Instance`）持有 `AllConfigs`、当前选中名（`SelectedName`）与全部变更入口：
+  - 读取：`Selected()` 返回选中记录（无选中时为 `""`），`SelectedMappings()` 返回其映射数组。
+  - 变更（每个方法内部运行同一条 chokepoint）：`Select(name)`、`SetEnabled(flag)`、`SetScope(mode, procStr)`、`AddMapping(mapping)`、`ReplaceMapping(index, mapping)`、`DeleteMapping(index)`、`CreateConfig(name, mode, procStr)`、`CopyConfig(newName)`、`DeleteConfig()`（内含文件删除）。
+- 统一 chokepoint：持久化（原子写配置文件 + `SaveEnabledStates`）→ `ReloadAllHotkeys()` → 渲染（现有 `Refresh*`/`UpdateStatusText`）。包括启用开关在内的所有变更都走完全相同的序列，无特殊分支。
+- GUI 事件处理器只做输入校验 + 一次 store 调用；映射编辑弹窗 OK 时重建全新记录交给 store，Cancel 不触碰任何状态。
+- 测试通过 `ResetConfigStoreForTests()` 重置单例（TestBase 的 `ResetAppState` 会调用）。
 
 ## 自动化测试架构
 

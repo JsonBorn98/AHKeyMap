@@ -63,16 +63,17 @@ Test artifacts land in `test-results/`: `logs/` (one per test file), `summary.js
 
 Single-entry AHK v2 app. Runtime data (`configs/*.ini`, `configs/_state.ini`) is created on first run and gitignored.
 
-`src/AHKeyMap.ahk` initializes all globals and `#Include`s 8 modules in order. **Only `src/AHKeyMap.ahk` owns the `#Include` list** — do not add cross-includes from leaf modules.
+`src/AHKeyMap.ahk` initializes all globals and `#Include`s 10 modules in order. **Only `src/AHKeyMap.ahk` owns the `#Include` list** — do not add cross-includes from leaf modules.
 
 ```
-src/core/Config.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
-  → src/core/HotkeyEngine.ahk → src/core/KeyCapture.ahk
+src/core/Config.ahk → src/core/ConfigStore.ahk → src/shared/Utils.ahk → src/core/Localization.ahk
+  → src/core/PathCEngine.ahk → src/core/HotkeyEngine.ahk → src/core/KeyCapture.ahk
   → src/ui/GuiMain.ahk → src/ui/MappingEditor.ahk → src/ui/GuiEvents.ahk
 ```
 
 **Module responsibilities:**
-- `Config.ahk` — load/save INI configs (atomic write via `.tmp`), enabled-state persistence (also atomic)
+- `Config.ahk` — pure INI I/O: load/save configs (atomic write via `.tmp`), enabled-state persistence (also atomic), main-window render functions
+- `ConfigStore.ahk` — owns `AllConfigs`, the current selection, and every mutation; each runs one chokepoint (persist → reload hotkeys → render) via the lazy singleton `ConfigStore.Instance`
 - `Localization.ahk` — in-memory language packs and `L(key, args*)`
 - `HotkeyEngine.ahk` — hotkey register/unregister, three registration paths (A/B/C), cross-path B/C conflict detection
 - `KeyCapture.ahk` — key capture (polling + mouse hook), 200ms startup delay, auto-cancel on focus loss

@@ -97,15 +97,6 @@ ResetTestConfigDir() {
 
 ResetAppState() {
     global AllConfigs
-    global CurrentConfigName
-    global CurrentConfigFile
-    global CurrentProcessMode
-    global CurrentProcess
-    global CurrentProcessList
-    global CurrentExcludeProcess
-    global CurrentExcludeProcessList
-    global CurrentConfigEnabled
-    global Mappings
     global MainGui
     global ConfigDDL
     global EnabledCB
@@ -149,15 +140,7 @@ ResetAppState() {
     global ForegroundProcessHook
 
     AllConfigs.Length := 0
-    CurrentConfigName := ""
-    CurrentConfigFile := ""
-    CurrentProcessMode := "global"
-    CurrentProcess := ""
-    CurrentProcessList := []
-    CurrentExcludeProcess := ""
-    CurrentExcludeProcessList := []
-    CurrentConfigEnabled := true
-    Mappings.Length := 0
+    ResetConfigStoreForTests()
 
     MainGui := ""
     ConfigDDL := ""

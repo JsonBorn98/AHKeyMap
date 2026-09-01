@@ -199,12 +199,6 @@ ReloadAllHotkeys() {
     UpdateStatusText()
 }
 
-
-; Reload hotkeys for a single config (implemented as full reload for now)
-ReloadConfigHotkeys(configName := "") {
-    ReloadAllHotkeys()
-}
-
 ; Detect hotkey conflicts across enabled configs with overlapping scopes
 ; Conflict rules:
 ;   global vs any non-empty scope -> conflict
