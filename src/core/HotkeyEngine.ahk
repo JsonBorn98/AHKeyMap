@@ -16,6 +16,7 @@ global PathCModSessions
 global PathCModsUsed
 global PathCSourceKeysUsed
 global PathCWheelRoutePredicates
+global ForegroundProcessHook
 global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
@@ -45,6 +46,11 @@ NormalizeProcessName(procName) {
 }
 
 GetForegroundProcessName() {
+    ; Test seam: when set, the hook replaces the OS foreground-process query
+    if (ForegroundProcessHook != "") {
+        return NormalizeProcessName(ForegroundProcessHook.Call())
+    }
+
     try
         return NormalizeProcessName(WinGetProcessName("A"))
     catch

@@ -151,6 +151,7 @@ ResetAppState() {
     global ProcessPickerGui
     global CurrentLangCode
     global DispatchSendHook
+    global ForegroundProcessHook
 
     AllConfigs.Length := 0
     CurrentConfigName := ""
@@ -212,6 +213,7 @@ ResetAppState() {
     ProcessPickerGui := ""
     CurrentLangCode := "en-US"
     DispatchSendHook := ""
+    ForegroundProcessHook := ""
 }
 
 CleanupTestWindows() {
@@ -460,6 +462,12 @@ DisableSendCapture() {
 
 RecordCapturedSend(sendKey) {
     CapturedSendKeys.Push(sendKey)
+}
+
+; Script the foreground process name seen by the scope-check path
+SetForegroundProcess(name) {
+    global ForegroundProcessHook
+    ForegroundProcessHook := (*) => name
 }
 
 WaitForCondition(predicate, timeoutMs := 1000, pollIntervalMs := 25, failureMessage := "Timed out waiting for condition.") {

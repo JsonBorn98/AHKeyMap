@@ -103,18 +103,22 @@ Test_PathC_ShouldRouteWheelSource_FalseWithoutSession() {
 }
 
 Test_PathC_ShouldRouteWheelSource_FalseWhenScopeDoesNotMatch() {
-    checker := (*) => false
+    cfg := BuildConfigRecord("Cfg", "include", "notepad.exe")
+    checker := MakeProcessChecker(cfg)
     RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
     PathC_ModDownCallback("RButton")
+    SetForegroundProcess("msedge.exe")
 
     AssertFalse(PathC_ShouldRouteWheelSource("WheelUp"))
     AssertFalse(PathC_ShouldRouteWheelSource("WheelUp", "*WheelUp"))
 }
 
 Test_PathC_ShouldRouteWheelSource_TrueWhenSessionAndScopeMatch() {
-    checker := (*) => true
+    cfg := BuildConfigRecord("Cfg", "include", "notepad.exe")
+    checker := MakeProcessChecker(cfg)
     RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
     PathC_ModDownCallback("RButton")
+    SetForegroundProcess("notepad.exe")
 
     AssertTrue(PathC_ShouldRouteWheelSource("WheelUp"))
     AssertTrue(PathC_ShouldRouteWheelSource("WheelUp", "*WheelUp"))
