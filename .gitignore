@@ -7,3 +7,4 @@ dist/
 .cursor/
 test-results/
 .ahk-toolchain/
+.idea/
