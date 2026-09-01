@@ -228,15 +228,9 @@ DetectHotkeyConflicts() {
         else
             procKey := ""
 
-        for idx, mapping in cfg["mappings"] {
-            modKey := mapping["ModifierKey"]
-            sourceKey := mapping["SourceKey"]
-            if (modKey = "")
-                hkStr := sourceKey
-            else if (!mapping["PassthroughMod"])
-                hkStr := modKey " & " sourceKey
-            else
-                hkStr := "~" modKey "+" sourceKey
+        for idx, m in cfg["mappings"] {
+            hkStr := Mapping.HotkeyStringFor(m)
+            modKey := m["ModifierKey"]
 
             entry := {
                 hotkey: hkStr,
@@ -253,14 +247,14 @@ DetectHotkeyConflicts() {
             ; Collect modifier usage by path for cross-path B/C conflict detection
             if (modKey != "") {
                 scopeInfo := { configName: cfg["name"], mode: mode, procKey: procKey }
-                if (!mapping["PassthroughMod"]) {
-                    if !modUsageB.Has(modKey)
-                        modUsageB[modKey] := []
-                    modUsageB[modKey].Push(scopeInfo)
-                } else {
+                if (Mapping.ClassifyPath(m) = Mapping.PATH_C) {
                     if !modUsageC.Has(modKey)
                         modUsageC[modKey] := []
                     modUsageC[modKey].Push(scopeInfo)
+                } else {
+                    if !modUsageB.Has(modKey)
+                        modUsageB[modKey] := []
+                    modUsageB[modKey].Push(scopeInfo)
                 }
             }
         }
@@ -458,48 +452,49 @@ RegisterConfigHotkeys(cfg) {
 }
 
 ; Register a single mapping by dispatching to Path A/B/C
-RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
-    modKey := mapping["ModifierKey"]
+; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
+RegisterMapping(m, useCustomHotIf, checker, uniqueIdx, configName) {
+    path := Mapping.ClassifyPath(m)
 
     ; Path A: no modifier, direct hotkey registration
-    if (modKey = "") {
+    if (path = Mapping.PATH_A) {
         if (useCustomHotIf)
             HotIf(checker)
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathA(mapping, hkInfo, uniqueIdx)
+        RegisterPathA(m, hkInfo, uniqueIdx)
         ActiveHotkeys.Push(hkInfo)
         return
     }
 
     ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
-    if (!mapping["PassthroughMod"]) {
+    if (path = Mapping.PATH_B) {
         if (useCustomHotIf)
             HotIf(checker)
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
+        RegisterPathB(m, hkInfo, uniqueIdx, checker, configName)
         ActiveHotkeys.Push(hkInfo)
         return
     }
 
     ; Path C: stateful passthrough, handled by Path C engine instead of direct target callback
     HotIf()
-    PathCEngine.Instance.AddMapping(mapping, uniqueIdx, configName, checker)
+    PathCEngine.Instance.AddMapping(m, uniqueIdx, configName, checker)
 }
 
 ; Path A: no modifier, directly map sourceKey -> targetKey
-RegisterPathA(mapping, hkInfo, uniqueIdx) {
-    sourceKey := mapping["SourceKey"]
-    targetKey := mapping["TargetKey"]
-    holdRepeat := mapping["HoldRepeat"]
+RegisterPathA(m, hkInfo, uniqueIdx) {
+    sourceKey := m["SourceKey"]
+    targetKey := m["TargetKey"]
+    holdRepeat := m["HoldRepeat"]
 
     hkInfo.key := sourceKey
 
     if (holdRepeat) {
-        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        downCb := HoldDownCallback.Bind(targetKey, m["RepeatDelay"], m["RepeatInterval"], uniqueIdx, sourceKey)
         upCb := HoldUpCallback.Bind(uniqueIdx)
         try {
             Hotkey(sourceKey, downCb, "On")
@@ -516,17 +511,17 @@ RegisterPathA(mapping, hkInfo, uniqueIdx) {
 }
 
 ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
-RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
-    modKey := mapping["ModifierKey"]
-    sourceKey := mapping["SourceKey"]
-    targetKey := mapping["TargetKey"]
-    holdRepeat := mapping["HoldRepeat"]
-    comboKey := modKey " & " sourceKey
+RegisterPathB(m, hkInfo, uniqueIdx, checker, configName) {
+    modKey := m["ModifierKey"]
+    sourceKey := m["SourceKey"]
+    targetKey := m["TargetKey"]
+    holdRepeat := m["HoldRepeat"]
+    comboKey := Mapping.HotkeyStringFor(m)
 
     hkInfo.key := comboKey
 
     if (holdRepeat) {
-        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        downCb := HoldDownCallback.Bind(targetKey, m["RepeatDelay"], m["RepeatInterval"], uniqueIdx, sourceKey)
         upCb := HoldUpCallback.Bind(uniqueIdx)
         try {
             Hotkey(comboKey, downCb, "On")

@@ -364,29 +364,11 @@ AssertThrows(fn, message := "") {
 }
 
 MakeMapping(modifierKey, sourceKey, targetKey, holdRepeat := 0, repeatDelay := 300, repeatInterval := 50, passthroughMod := 0) {
-    mapping := Map()
-    mapping["ModifierKey"] := modifierKey
-    mapping["SourceKey"] := sourceKey
-    mapping["TargetKey"] := targetKey
-    mapping["HoldRepeat"] := holdRepeat
-    mapping["RepeatDelay"] := repeatDelay
-    mapping["RepeatInterval"] := repeatInterval
-    mapping["PassthroughMod"] := passthroughMod
-    return mapping
+    return Mapping.Make(modifierKey, sourceKey, targetKey, holdRepeat, repeatDelay, repeatInterval, passthroughMod)
 }
 
 BuildConfigRecord(configName, processMode := "global", process := "", excludeProcess := "", enabled := true, mappings := "") {
-    cfg := Map()
-    cfg["name"] := configName
-    cfg["file"] := CONFIG_DIR "\" configName ".ini"
-    cfg["processMode"] := processMode
-    cfg["process"] := process
-    cfg["processList"] := ParseProcessList(process)
-    cfg["excludeProcess"] := excludeProcess
-    cfg["excludeProcessList"] := ParseProcessList(excludeProcess)
-    cfg["enabled"] := enabled
-    cfg["mappings"] := mappings = "" ? [] : mappings
-    return cfg
+    return ConfigRecord.Make(configName, processMode, process, excludeProcess, enabled, mappings = "" ? [] : mappings)
 }
 
 SeedConfigFile(configName, processMode := "global", process := "", excludeProcess := "", mappings := "", enabled := 1) {
@@ -398,15 +380,10 @@ SeedConfigFile(configName, processMode := "global", process := "", excludeProces
     IniWrite(excludeProcess, configFile, "Meta", "ExcludeProcess")
 
     if (mappings != "") {
-        for idx, mapping in mappings {
+        for idx, m in mappings {
             sectionName := "Mapping" idx
-            IniWrite(mapping["ModifierKey"], configFile, sectionName, "ModifierKey")
-            IniWrite(mapping["SourceKey"], configFile, sectionName, "SourceKey")
-            IniWrite(mapping["TargetKey"], configFile, sectionName, "TargetKey")
-            IniWrite(mapping["HoldRepeat"], configFile, sectionName, "HoldRepeat")
-            IniWrite(mapping["RepeatDelay"], configFile, sectionName, "RepeatDelay")
-            IniWrite(mapping["RepeatInterval"], configFile, sectionName, "RepeatInterval")
-            IniWrite(mapping["PassthroughMod"], configFile, sectionName, "PassthroughMod")
+            for iniKey, iniVal in Mapping.ToIniPairs(m)
+                IniWrite(iniVal, configFile, sectionName, iniKey)
         }
     }
 

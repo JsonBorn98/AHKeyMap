@@ -97,6 +97,7 @@ global ProcessPickerGui := ""
 ; ============================================================================
 ; Include modules
 ; ============================================================================
+#Include "shared/Schema.ahk"
 #Include "core/Config.ahk"
 #Include "core/ConfigStore.ahk"
 #Include "shared/Utils.ahk"

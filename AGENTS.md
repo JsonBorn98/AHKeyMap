@@ -21,6 +21,7 @@ Audience: coding agents working on AHKeyMap.
 ## Repo map
 ```text
 src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
+src/shared/Schema.ahk      — mapping/config record schema (static namespaces: construction, normalization, path rule)
 src/core/Config.ahk        — config/state INI I/O, atomic writes, main-window render functions
 src/core/ConfigStore.ahk   — config working copy owner: AllConfigs, selection, mutation chokepoint
 src/core/Localization.ahk  — `L(key, args*)`, `BuildEnPack()`, `BuildZhPack()`
@@ -82,16 +83,17 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 ## Include / import rules
 - `src/AHKeyMap.ahk` owns the entire `#Include` list. Do not add cross-includes from leaf modules.
 - Include order follows dependency flow:
-  1. `core/Config.ahk`
-  2. `core/ConfigStore.ahk`
-  3. `shared/Utils.ahk`
-  4. `core/Localization.ahk`
-  5. `core/PathCEngine.ahk`
-  6. `core/HotkeyEngine.ahk`
-  7. `core/KeyCapture.ahk`
-  8. `ui/GuiMain.ahk`
-  9. `ui/MappingEditor.ahk`
-  10. `ui/GuiEvents.ahk`
+  1. `shared/Schema.ahk`
+  2. `core/Config.ahk`
+  3. `core/ConfigStore.ahk`
+  4. `shared/Utils.ahk`
+  5. `core/Localization.ahk`
+  6. `core/PathCEngine.ahk`
+  7. `core/HotkeyEngine.ahk`
+  8. `core/KeyCapture.ahk`
+  9. `ui/GuiMain.ahk`
+  10. `ui/MappingEditor.ahk`
+  11. `ui/GuiEvents.ahk`
 - Only `src/AHKeyMap.ahk` initializes globals with `:=`; other modules may declare `global VarName` but must not reinitialize shared state.
 
 ## Code style
@@ -110,7 +112,9 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 
 ### Types and shared state
 - Use `Map()` for keyed records and arrays for ordered collections.
-- Config records and mappings are `Map()`-based; clone entries with `for k, v in old`, not direct assignment.
+- Mapping/config records are `Map()`-based and constructed through `src/shared/Schema.ahk` (`Mapping.Make`, `ConfigRecord.Make`); never restate the field list inline.
+- `Mapping.Normalize` enforces the record invariants (7-key whitelist, integer coercion, defaults, min-10 repeat timing); `Mapping.ClassifyPath`/`Mapping.HotkeyStringFor` own the path rule and hotkey-string derivation; `Mapping.ToIniPairs` owns the serialization field list.
+- Clone entries with `for k, v in old`, not direct assignment.
 - Prefer in-place mutation (`.Length := 0`, `.Push(...)`) over replacing shared arrays/maps.
 - Coerce numeric INI values with `Integer()` on load.
 - Process lists are stored as `|`-delimited strings in INI and parsed into arrays in memory.

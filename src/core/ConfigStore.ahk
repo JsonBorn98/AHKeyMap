@@ -149,7 +149,7 @@ class ConfigStore {
         cfg := this.Selected()
         if (cfg = "")
             return 0
-        cfg["mappings"].Push(mapping)
+        cfg["mappings"].Push(this.NormalizeIncomingMapping(mapping))
         this.RunChokepoint()
         return cfg["mappings"].Length
     }
@@ -161,7 +161,7 @@ class ConfigStore {
             return
         if (index < 1 || index > cfg["mappings"].Length)
             return
-        cfg["mappings"][index] := mapping
+        cfg["mappings"][index] := this.NormalizeIncomingMapping(mapping)
         this.RunChokepoint()
     }
 
@@ -244,6 +244,21 @@ class ConfigStore {
         SaveEnabledStates()
         ReloadAllHotkeys()
         RefreshConfigList()
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Internals
+    ; ------------------------------------------------------------------------
+
+    ; Boundary guarantee: every mapping entering the working copy is
+    ; re-normalized so all stored records satisfy the schema invariants
+    ; (local name avoids shadowing the Mapping class; AHK names are
+    ; case-insensitive)
+    NormalizeIncomingMapping(m) {
+        if (Type(m) != "Map")
+            return Mapping.Make("", "", "")
+        Mapping.Normalize(m)
+        return m
     }
 
     ; ------------------------------------------------------------------------

@@ -85,23 +85,27 @@ class PathCEngine {
     ; ------------------------------------------------------------------------
 
     ; Record one Path C mapping for unified routing (was RegisterPathCMapping)
-    AddMapping(mapping, id, configName, checker) {
-        modKey := mapping["ModifierKey"]
-        sourceKey := mapping["SourceKey"]
-        if (modKey = "" || !mapping["PassthroughMod"])
+    ; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
+    AddMapping(m, id, configName, checker) {
+        if (Mapping.ClassifyPath(m) != Mapping.PATH_C)
             return
+
+        modKey := m["ModifierKey"]
+        sourceKey := m["SourceKey"]
 
         key := modKey "|" sourceKey
         if !this.mappingByModSource.Has(key)
             this.mappingByModSource[key] := []
 
+        ; The internal entry object is derived from the Map record in this
+        ; one place (the engine never reads the raw record shape elsewhere)
         entry := {
             modKey: modKey,
             sourceKey: sourceKey,
-            targetKey: mapping["TargetKey"],
-            holdRepeat: mapping["HoldRepeat"],
-            repeatDelay: mapping["RepeatDelay"],
-            repeatInterval: mapping["RepeatInterval"],
+            targetKey: m["TargetKey"],
+            holdRepeat: m["HoldRepeat"],
+            repeatDelay: m["RepeatDelay"],
+            repeatInterval: m["RepeatInterval"],
             configName: configName,
             id: id,
             checker: checker
