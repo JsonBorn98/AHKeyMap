@@ -20,6 +20,7 @@
 - `src/core/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
 - `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 委托给 `src/core/PathCEngine.ahk`；冲突检测包含跨路径 B/C 修饰键冲突
 - `src/core/PathCEngine.ahk`：路径 C 透传组合引擎（会话状态机、统一事件路由、自有的 repeat 定时器与滚轮路由，以及路由热键的自注册/自卸载；入口为惰性单例 `PathCEngine.Instance`）
+- `src/shared/Schema.ahk`：记录 schema（纯静态命名空间 `Mapping` / `ConfigRecord`）；映射记录的构造/规范化（7 键白名单、整数化、默认值、最小 10ms 钳制）、路径分类规则（`Mapping.ClassifyPath`）、热键串推导（`Mapping.HotkeyStringFor`）与 INI 序列化字段表（`Mapping.ToIniPairs`）都唯一归属于此
 - `src/shared/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
 ## 全局变量管理
@@ -77,6 +78,7 @@
 `RegisterMapping` 根据 `ModifierKey` 与 `PassthroughMod` 分发到三个路径函数。
 
 ### 路径选择逻辑
+- 规则唯一归属于 `Mapping.ClassifyPath`（`src/shared/Schema.ahk`）；注册分发、冲突检测与 Path C 引擎的入口守卫都从它推导：
 - `ModifierKey` 为空 → `RegisterPathA`（普通热键）
 - `ModifierKey` 非空且 `PassthroughMod=0` → `RegisterPathB`（拦截式组合）
 - `ModifierKey` 非空且 `PassthroughMod=1` → `RegisterPathCMapping`（路径 C 映射表，统一由 Path C 引擎处理）

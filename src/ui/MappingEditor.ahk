@@ -118,24 +118,21 @@ OnEditMappingOK(*) {
 
     repeatDelay := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : DEFAULT_REPEAT_DELAY
     repeatInterval := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : DEFAULT_REPEAT_INTERVAL
-    if (repeatDelay < 10)
-        repeatDelay := 10
-    if (repeatInterval < 10)
-        repeatInterval := 10
 
-    mapping := Map()
-    mapping["ModifierKey"] := modifierAhk
-    mapping["SourceKey"] := sourceAhk
-    mapping["TargetKey"] := targetAhk
-    mapping["HoldRepeat"] := EditHoldRepeatCB.Value ? 1 : 0
-    mapping["RepeatDelay"] := repeatDelay
-    mapping["RepeatInterval"] := repeatInterval
-    mapping["PassthroughMod"] := EditPassthroughCB.Value ? 1 : 0
+    ; Mapping.Make owns the record shape and the min-10 clamping
+    newMapping := Mapping.Make(
+        modifierAhk,
+        sourceAhk,
+        targetAhk,
+        EditHoldRepeatCB.Value ? 1 : 0,
+        repeatDelay,
+        repeatInterval,
+        EditPassthroughCB.Value ? 1 : 0)
 
     if (EditingIndex > 0 && EditingIndex <= ConfigStore.Instance.SelectedMappings().Length) {
-        ConfigStore.Instance.ReplaceMapping(EditingIndex, mapping)
+        ConfigStore.Instance.ReplaceMapping(EditingIndex, newMapping)
     } else {
-        ConfigStore.Instance.AddMapping(mapping)
+        ConfigStore.Instance.AddMapping(newMapping)
     }
 
     DestroyModalGui(EditGui)

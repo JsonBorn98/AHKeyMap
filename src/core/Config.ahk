@@ -18,8 +18,6 @@ global StatusHasWarning
 global MappingLV
 global HotkeyConflicts
 global HotkeyRegErrors
-global DEFAULT_REPEAT_DELAY
-global DEFAULT_REPEAT_INTERVAL
 
 ; ============================================================================
 ; Config management functions
@@ -55,10 +53,6 @@ LoadConfigData(configName) {
     if !FileExist(configFile)
         return ""
 
-    cfg := Map()
-    cfg["name"] := configName
-    cfg["file"] := configFile
-
     ; Read Meta section - process mode (with backwards compatibility)
     processMode := IniRead(configFile, "Meta", "ProcessMode", "")
     process := IniRead(configFile, "Meta", "Process", "")
@@ -72,19 +66,14 @@ LoadConfigData(configName) {
             processMode := "global"
     }
 
-    cfg["processMode"] := processMode
-    cfg["process"] := process
-    cfg["processList"] := ParseProcessList(process)
-    cfg["excludeProcess"] := excludeProcess
-    cfg["excludeProcessList"] := ParseProcessList(excludeProcess)
-
     ; Read enabled state from _state.ini
     enabledVal := "1"
     if FileExist(STATE_FILE)
         enabledVal := IniRead(STATE_FILE, "EnabledConfigs", configName, "1")
-    cfg["enabled"] := (enabledVal = "1")
+    enabled := (enabledVal = "1")
 
-    ; Read mappings
+    ; Read mappings (Mapping.Make enforces the record invariants, including
+    ; clamping hand-edited sub-minimum repeat timing at load time)
     mappings := []
     idx := 1
     loop {
@@ -93,20 +82,18 @@ LoadConfigData(configName) {
         if (sourceKey = "")
             break
 
-        mapping := Map()
-        mapping["ModifierKey"] := IniRead(configFile, section, "ModifierKey", "")
-        mapping["SourceKey"] := sourceKey
-        mapping["TargetKey"] := IniRead(configFile, section, "TargetKey", "")
-        mapping["HoldRepeat"] := Integer(IniRead(configFile, section, "HoldRepeat", "0"))
-        mapping["RepeatDelay"] := Integer(IniRead(configFile, section, "RepeatDelay", String(DEFAULT_REPEAT_DELAY)))
-        mapping["RepeatInterval"] := Integer(IniRead(configFile, section, "RepeatInterval", String(DEFAULT_REPEAT_INTERVAL)))
-        mapping["PassthroughMod"] := Integer(IniRead(configFile, section, "PassthroughMod", "0"))
-        mappings.Push(mapping)
+        mappings.Push(Mapping.Make(
+            IniRead(configFile, section, "ModifierKey", ""),
+            sourceKey,
+            IniRead(configFile, section, "TargetKey", ""),
+            IniRead(configFile, section, "HoldRepeat", "0"),
+            IniRead(configFile, section, "RepeatDelay", ""),
+            IniRead(configFile, section, "RepeatInterval", ""),
+            IniRead(configFile, section, "PassthroughMod", "0")))
         idx++
     }
-    cfg["mappings"] := mappings
 
-    return cfg
+    return ConfigRecord.Make(configName, processMode, process, excludeProcess, enabled, mappings)
 }
 
 ; Parse process string into an array
@@ -142,14 +129,13 @@ SaveConfig(cfg) {
         metaPairs .= "`nExcludeProcess=" cfg["excludeProcess"]
         IniWrite(metaPairs, tempFile, "Meta")
 
-        for idx, mapping in cfg["mappings"] {
-            pairs := "ModifierKey=" mapping["ModifierKey"]
-            pairs .= "`nSourceKey=" mapping["SourceKey"]
-            pairs .= "`nTargetKey=" mapping["TargetKey"]
-            pairs .= "`nHoldRepeat=" mapping["HoldRepeat"]
-            pairs .= "`nRepeatDelay=" mapping["RepeatDelay"]
-            pairs .= "`nRepeatInterval=" mapping["RepeatInterval"]
-            pairs .= "`nPassthroughMod=" mapping["PassthroughMod"]
+        for idx, m in cfg["mappings"] {
+            pairs := ""
+            for iniKey, iniVal in Mapping.ToIniPairs(m) {
+                if (pairs != "")
+                    pairs .= "`n"
+                pairs .= iniKey "=" iniVal
+            }
             IniWrite(pairs, tempFile, "Mapping" idx)
         }
     } catch as e {
