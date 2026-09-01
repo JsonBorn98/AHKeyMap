@@ -11,12 +11,6 @@ global InterceptModKeys
 global AllProcessCheckers
 global HotkeyConflicts
 global HotkeyRegErrors
-global PathCMappingByModSource
-global PathCModSessions
-global PathCModsUsed
-global PathCSourceKeysUsed
-global PathCWheelRoutePredicates
-global CONTEXT_MENU_DISMISS_DELAY
 
 ; ============================================================================
 ; Hotkey engine core
@@ -84,16 +78,6 @@ AddUniqueArrayValue(arr, value) {
     arr.Push(value)
 }
 
-; For Path C, only register Up hotkeys on source keys that support key-up
-SupportsKeyUpHotkey(hotkeyName) {
-    return !IsWheelSourceKey(hotkeyName)
-}
-
-IsWheelSourceKey(sourceKey) {
-    baseKey := RegExReplace(sourceKey, "^[~*$+!#^]+", "")
-    return RegExMatch(baseKey, "^Wheel")
-}
-
 MakeActiveHotkeyRecord(checker := "", configName := "", key := "", keyUp := "") {
     return {
         checker: checker,
@@ -144,11 +128,9 @@ UnregisterAllHotkeys() {
     global HoldTimers := Map()
     global AllProcessCheckers := []
     global HotkeyRegErrors := []
-    global PathCMappingByModSource := Map()
-    global PathCModSessions := Map()
-    global PathCModsUsed := Map()
-    global PathCSourceKeysUsed := Map()
-    global PathCWheelRoutePredicates := []
+
+    ; Path C hotkeys and state are owned by the Path C engine
+    PathCEngine.Instance.Reset()
 
     ; Then disable each hotkey from the snapshot, ignoring script-level cleanup errors
     for _, info in hotkeysSnapshot {
@@ -202,7 +184,7 @@ ReloadAllHotkeys() {
         RegisterConfigHotkeys(cfg)
 
     ; Register shared routing hotkeys for all Path C mappings
-    RegisterAllPathCHotkeys()
+    PathCEngine.Instance.Commit()
 
     HotIf()
 
@@ -505,7 +487,7 @@ RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
 
     ; Path C: stateful passthrough, handled by Path C engine instead of direct target callback
     HotIf()
-    RegisterPathCMapping(mapping, uniqueIdx, configName, checker)
+    PathCEngine.Instance.AddMapping(mapping, uniqueIdx, configName, checker)
 }
 
 ; Path A: no modifier, directly map sourceKey -> targetKey
@@ -573,36 +555,6 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
     }
 }
 
-; Path C: only build the mapping table; runtime behavior is handled by the Path C engine
-RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
-    global PathCMappingByModSource, PathCModsUsed, PathCSourceKeysUsed
-
-    modKey := mapping["ModifierKey"]
-    sourceKey := mapping["SourceKey"]
-    if (modKey = "" || !mapping["PassthroughMod"])
-        return
-
-    key := modKey "|" sourceKey
-    if !PathCMappingByModSource.Has(key)
-        PathCMappingByModSource[key] := []
-
-    entry := {
-        modKey: modKey,
-        sourceKey: sourceKey,
-        targetKey: mapping["TargetKey"],
-        holdRepeat: mapping["HoldRepeat"],
-        repeatDelay: mapping["RepeatDelay"],
-        repeatInterval: mapping["RepeatInterval"],
-        configName: configName,
-        id: uniqueIdx,
-        checker: checker
-    }
-    PathCMappingByModSource[key].Push(entry)
-
-    PathCModsUsed[modKey] := true
-    PathCSourceKeysUsed[sourceKey] := true
-}
-
 ; ============================================================================
 ; Path A/B callbacks
 ; ============================================================================
@@ -640,12 +592,7 @@ StopHoldTimer(idx) {
     }
 }
 
-RepeatTimerCallback(sendKey, sourceKey, idx, modKey := "", *) {
-    ; For Path C: ensure modifier is still held
-    if (modKey != "" && !GetKeyState(modKey, "P")) {
-        StopHoldTimer(idx)
-        return
-    }
+RepeatTimerCallback(sendKey, sourceKey, idx, *) {
     ; Safety check: stop repeating if the source key has been released (non-wheel keys)
     baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
     if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
@@ -668,273 +615,4 @@ RestoreModKeyCallback(modKey, *) {
         return
 
     DispatchSend(KeyToSendFormat(modKey))
-}
-
-; ============================================================================
-; Path C engine (explicit state machine + unified event routing)
-; ============================================================================
-
-; Register all Path C modifier/source hotkeys after config registration completes
-RegisterAllPathCHotkeys() {
-    global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors, PathCWheelRoutePredicates
-
-    ; Modifiers: keyboard/mouse keys all use "~modKey" / "~modKey Up" to pass through events
-    for modKey, _ in PathCModsUsed {
-        if (modKey = "")
-            continue
-
-        downHk := "~" modKey
-        upHk := "~" modKey " Up"
-
-        try {
-            HotIf()
-            Hotkey(downHk, PathC_ModDownCallback.Bind(modKey), "On")
-            Hotkey(upHk, PathC_ModUpCallback.Bind(modKey), "On")
-        } catch as e {
-            HotkeyRegErrors.Push(downHk)
-            continue
-        }
-
-        modHkInfo := MakeActiveHotkeyRecord("", "", downHk, upHk)
-        ActiveHotkeys.Push(modHkInfo)
-    }
-
-    ; Source keys: listen centrally and let Path C decide what to trigger
-    for sourceKey, _ in PathCSourceKeysUsed {
-        if (sourceKey = "")
-            continue
-
-        sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
-
-        ; KeyDown
-        hkInfo := MakeActiveHotkeyRecord("", "", sourceHotkey)
-
-        if (IsWheelSourceKey(sourceKey)) {
-            wheelRoutePredicate := PathC_ShouldRouteWheelSource.Bind(sourceKey)
-            try {
-                HotIf(wheelRoutePredicate)
-                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
-                hkInfo.checker := wheelRoutePredicate
-                PathCWheelRoutePredicates.Push(wheelRoutePredicate)
-            } catch as e {
-                HotkeyRegErrors.Push(sourceHotkey)
-            }
-        } else {
-            try {
-                HotIf()
-                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
-            } catch as e {
-                HotkeyRegErrors.Push(sourceHotkey)
-            }
-        }
-
-        ; KeyUp: only for source keys that support Up hotkeys
-        if (SupportsKeyUpHotkey(sourceHotkey)) {
-            srcUpHotkey := sourceHotkey " Up"
-            try {
-                HotIf()
-                Hotkey(srcUpHotkey, PathC_SourceUpCallback.Bind(sourceKey), "On")
-                hkInfo.keyUp := srcUpHotkey
-            } catch as e {
-                HotkeyRegErrors.Push(srcUpHotkey)
-            }
-        }
-        ActiveHotkeys.Push(hkInfo)
-    }
-
-    HotIf()
-}
-
-; Get or initialize the session state for a modifier key
-PathC_GetSession(modKey) {
-    global PathCModSessions
-    if !PathCModSessions.Has(modKey) {
-        PathCModSessions[modKey] := {
-            state: "Idle",
-            isGesture: false,
-            activeSources: Map(),
-            repeatMappings: Map()
-        }
-    }
-    return PathCModSessions[modKey]
-}
-
-; End a modifier session: stop all repeats and reset state
-PathC_EndSession(modKey) {
-    global PathCModSessions, HoldTimers
-    if !PathCModSessions.Has(modKey)
-        return
-
-    session := PathCModSessions[modKey]
-
-    ; Stop all repeat timers associated with this modifier
-    for mappingId, _ in session.repeatMappings {
-        StopHoldTimer(mappingId)
-    }
-
-    session.repeatMappings := Map()
-    session.activeSources := Map()
-    session.state := "Idle"
-    session.isGesture := false
-}
-
-; Whether a mapping is active in the current foreground window (using checker closure)
-PathC_IsMappingActive(mapping) {
-    if (mapping.HasOwnProp("checker") && mapping.checker != "") {
-        try
-            return mapping.checker.Call()
-        catch
-            return false
-    }
-    return true
-}
-
-; Whether a Path C wheel source should be routed by the unified engine
-PathC_ShouldRouteWheelSource(sourceKey, *) {
-    global PathCMappingByModSource, PathCModSessions
-
-    if !IsWheelSourceKey(sourceKey)
-        return false
-
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-
-        key := modKey "|" sourceKey
-        if !PathCMappingByModSource.Has(key)
-            continue
-
-        mappings := PathCMappingByModSource[key]
-        for _, mapping in mappings {
-            if PathC_IsMappingActive(mapping)
-                return true
-        }
-    }
-
-    return false
-}
-
-; Start Path C long-press repeat for a mapping
-PathC_StartRepeat(mapping, modKey, sourceKey) {
-    global HoldTimers
-
-    idx := mapping.id
-    sendKey := KeyToSendFormat(mapping.targetKey)
-
-    ; Defensive cleanup: stop any existing timer to avoid orphan timers on re-entry
-    StopHoldTimer(idx)
-
-    DispatchSend(sendKey)
-
-    timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx, modKey)
-    startFn := StartRepeat.Bind(idx, timerFn, mapping.repeatInterval)
-    HoldTimers[idx] := { fn: timerFn, startFn: startFn, interval: mapping.repeatInterval, active: true }
-    SetTimer(startFn, -mapping.repeatDelay)
-}
-
-; Path C modifier-key down callback (shared entry point)
-PathC_ModDownCallback(modKey, *) {
-    session := PathC_GetSession(modKey)
-
-    ; Force-end any unfinished session before starting a new one
-    if (session.state != "Idle")
-        PathC_EndSession(modKey)
-
-    session := PathC_GetSession(modKey)
-    session.state := "HeldNoCombo"
-    session.isGesture := false
-    session.activeSources := Map()
-    session.repeatMappings := Map()
-}
-
-; Path C modifier-key up callback (shared entry point)
-PathC_ModUpCallback(modKey, *) {
-    session := PathC_GetSession(modKey)
-    if (session.state = "Idle") {
-        return
-    }
-
-    isGesture := session.isGesture
-
-    ; For RButton, only dismiss a possible context menu if this session actually triggered a Path C gesture.
-    ; Sending Escape keeps browser-style right-button gestures usable.
-    if (modKey = "RButton" && isGesture) {
-        SetTimer(PathC_DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
-    }
-
-    PathC_EndSession(modKey)
-}
-
-PathC_DismissContextMenu(*) {
-    DispatchSend("{Escape}")
-}
-
-; Path C source-key down callback (shared entry point)
-PathC_SourceDownCallback(sourceKey, *) {
-    global PathCMappingByModSource, PathCModSessions
-
-    handled := false
-
-    ; Iterate all currently active modifier sessions
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-
-        key := modKey "|" sourceKey
-        if !PathCMappingByModSource.Has(key)
-            continue
-
-        mappings := PathCMappingByModSource[key]
-
-        for _, mapping in mappings {
-            if !PathC_IsMappingActive(mapping)
-                continue
-
-            ; Mark this session as a gesture session
-            session.state := "GestureActive"
-            session.isGesture := true
-
-            if (mapping.holdRepeat) {
-                PathC_StartRepeat(mapping, modKey, sourceKey)
-                session.repeatMappings[mapping.id] := true
-
-                if !session.activeSources.Has(sourceKey)
-                    session.activeSources[sourceKey] := []
-                session.activeSources[sourceKey].Push(mapping.id)
-            } else {
-                DispatchSend(KeyToSendFormat(mapping.targetKey))
-            }
-
-            handled := true
-            break
-        }
-
-        if (handled)
-            break
-    }
-
-    if (!handled) {
-        ; No Path C mapping matched, fall back to the raw source key
-        DispatchSend(KeyToSendFormat(sourceKey))
-    }
-}
-
-; Path C source-key up callback (shared entry point, only for keys that support Up)
-PathC_SourceUpCallback(sourceKey, *) {
-    global PathCModSessions
-
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-        if !session.activeSources.Has(sourceKey)
-            continue
-
-        ids := session.activeSources[sourceKey]
-        for _, mappingId in ids {
-            StopHoldTimer(mappingId)
-            if (session.repeatMappings.Has(mappingId))
-                session.repeatMappings.Delete(mappingId)
-        }
-        session.activeSources.Delete(sourceKey)
-    }
 }

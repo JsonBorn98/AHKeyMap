@@ -23,7 +23,8 @@ Audience: coding agents working on AHKeyMap.
 src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
 src/core/Config.ahk        — config/state INI I/O and atomic writes
 src/core/Localization.ahk  — `L(key, args*)`, `BuildEnPack()`, `BuildZhPack()`
-src/core/HotkeyEngine.ahk  — Path A/B/C registration, conflicts, process checkers
+src/core/PathCEngine.ahk   — Path C engine (sessions, routing, repeat timers, own hotkey registration)
+src/core/HotkeyEngine.ahk  — Path A/B registration, conflicts, process checkers
 src/core/KeyCapture.ahk    — key capture via polling + mouse hook
 src/shared/Utils.ahk       — key formatting, process picker, auto-start helpers
 src/ui/GuiMain.ahk         — main window, tray menu, modal helpers
@@ -83,11 +84,12 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
   1. `core/Config.ahk`
   2. `shared/Utils.ahk`
   3. `core/Localization.ahk`
-  4. `core/HotkeyEngine.ahk`
-  5. `core/KeyCapture.ahk`
-  6. `ui/GuiMain.ahk`
-  7. `ui/MappingEditor.ahk`
-  8. `ui/GuiEvents.ahk`
+  4. `core/PathCEngine.ahk`
+  5. `core/HotkeyEngine.ahk`
+  6. `core/KeyCapture.ahk`
+  7. `ui/GuiMain.ahk`
+  8. `ui/MappingEditor.ahk`
+  9. `ui/GuiEvents.ahk`
 - Only `src/AHKeyMap.ahk` initializes globals with `:=`; other modules may declare `global VarName` but must not reinitialize shared state.
 
 ## Code style
@@ -131,6 +133,7 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 
 ### Hotkey and scope conventions
 - The engine uses three paths: Path A (no modifier), Path B (intercept combo), Path C (passthrough combo with session state).
+- Path C lives in `src/core/PathCEngine.ahk`; production code uses the lazy singleton `PathCEngine.Instance`, and only its `Commit()`/`Reset()` methods touch `Hotkey()`.
 - Process scope priority is `include > exclude > global`; an empty include/exclude list effectively behaves as global.
 - Preserve Path C wheel-routing and `RButton` gesture behavior.
 - Keep `AllProcessCheckers` references alive for closure lifetime.

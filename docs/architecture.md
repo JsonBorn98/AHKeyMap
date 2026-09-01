@@ -17,7 +17,8 @@
 - `src/ui/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `src/ui/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `src/core/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
-- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 由统一会话引擎路由；冲突检测包含跨路径 B/C 修饰键冲突
+- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 委托给 `src/core/PathCEngine.ahk`；冲突检测包含跨路径 B/C 修饰键冲突
+- `src/core/PathCEngine.ahk`：路径 C 透传组合引擎（会话状态机、统一事件路由、自有的 repeat 定时器与滚轮路由，以及路由热键的自注册/自卸载；入口为惰性单例 `PathCEngine.Instance`）
 - `src/shared/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
 ## 全局变量管理
@@ -81,20 +82,20 @@
 - 适合不需要保留修饰键原始行为的组合键场景
 
 ### 路径 C — Path C 引擎（状态机 + 统一路由）
-- 配置层：`ModifierKey` 非空且 `PassthroughMod=1` 的映射在注册阶段不会直接绑定 Hotkey 回调，而是写入 `PathCMappingByModSource` 映射表，按 `modKey "|" sourceKey` 分组。
-- 运行时：在 `ReloadAllHotkeys` 末尾，统一为所有出现过的 `modKey`、`sourceKey` 注册一组“事件路由 Hotkey”：
+- 配置层：`ModifierKey` 非空且 `PassthroughMod=1` 的映射在注册阶段不会直接绑定 Hotkey 回调，而是通过 `PathCEngine.Instance.AddMapping()` 记入引擎内部的映射表，按 `modKey "|" sourceKey` 分组。
+- 运行时：在 `ReloadAllHotkeys` 末尾调用 `PathCEngine.Instance.Commit()`，统一为所有出现过的 `modKey`、`sourceKey` 注册一组“事件路由 Hotkey”：
   - 修饰键：全部使用 `~modKey` / `~modKey Up` 透传物理事件，保证拖拽/浏览器右键手势等外部逻辑可以看到完整的 RButton 按下/移动/松开序列。
-  - 源键：非滚轮键使用 `*sourceKey` / `*sourceKey Up`；滚轮键使用 `*sourceKey`，并通过 `PathC_ShouldRouteWheelSource()` 仅在存在命中的 Path C 会话时拦截，从而保留浏览器 `Ctrl+Wheel` 等原生语义。
+  - 源键：非滚轮键使用 `*sourceKey` / `*sourceKey Up`；滚轮键使用 `*sourceKey`，并通过 `PathCEngine.Instance.ShouldRouteWheel()` 路由谓词仅在存在命中的 Path C 会话时拦截，从而保留浏览器 `Ctrl+Wheel` 等原生语义。
 - 设计目标：优先保留修饰键原始交互，再在这个基础上叠加按键映射；对 `RButton` 而言，浏览器右键手势、网页应用里的右键拖拽画布等能力优先于“绝对不闪菜单”。
-- Path C 引擎内部维护每个修饰键的会话状态：
-  - `state`: `"Idle"` / `"HeldNoCombo"` / `"GestureActive"`
+- Path C 引擎内部为每个修饰键维护一个 `PathCSession` 实例（构造函数固化会话结构）：
+  - `state`: 会话状态，取值为 `PathCEngine` 的 `STATE_IDLE` / `STATE_HELD_NO_COMBO` / `STATE_GESTURE_ACTIVE` 常量（对外经 `GetSessionState(modKey)` 只读暴露）
   - `isGesture`: 当前按下周期是否触发过任意 Path C 组合
   - `activeSources`: 当前会话下参与 repeat 的源键
   - `repeatMappings`: 当前会话下正在 repeat 的映射 ID 集合
 - 源键按下时，Path C 引擎按以下规则决策：
   - 遍历所有 `state != "Idle"` 的修饰键会话，对每个 `modKey "|" sourceKey` 在映射表里查找候选条目。
   - 通过配置层生成的 `checker` 闭包判断进程作用域是否命中；命中后触发映射，并将会话标记为 `GestureActive` / `isGesture = true`。
-  - 若映射开启 `HoldRepeat`，使用现有 `HoldTimers` + `RepeatTimerCallback(sendKey, sourceKey, idx, modKey)` 机制启动定时器，并将 `mapping.id` 记入会话。
+  - 若映射开启 `HoldRepeat`，由引擎自有的 repeat 定时器机制启动定时器（`PathCEngine` 内部的 `StartMappingRepeat`），并将 `mapping.id` 记入会话；路径 A/B 仍使用 `HoldTimers` + `RepeatTimerCallback(sendKey, sourceKey, idx)`。
   - 若未命中任何 Path C 映射，则回退发送原始 `sourceKey`；对于 `Wheel*`，如果当前根本不存在可命中的 Path C 会话，路由热键不会激活，原生滚轮事件会直接透传。
 - 修饰键松开时：
   - 对非 RButton：无论是否触发过组合，只执行 Path C 内部清理逻辑（停止 repeat、清空会话），修饰键物理语义由 `~modKey` 透传负责。
