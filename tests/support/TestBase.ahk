@@ -97,15 +97,6 @@ ResetTestConfigDir() {
 
 ResetAppState() {
     global AllConfigs
-    global CurrentConfigName
-    global CurrentConfigFile
-    global CurrentProcessMode
-    global CurrentProcess
-    global CurrentProcessList
-    global CurrentExcludeProcess
-    global CurrentExcludeProcessList
-    global CurrentConfigEnabled
-    global Mappings
     global MainGui
     global ConfigDDL
     global EnabledCB
@@ -115,6 +106,7 @@ ResetAppState() {
     global StatusDetailLink
     global StatusHasWarning
     global StatusDetailHovered
+    global LastReloadResult
     global BtnAddMapping
     global BtnEditMapping
     global BtnCopyMapping
@@ -133,14 +125,8 @@ ResetAppState() {
     global HoldTimers
     global InterceptModKeys
     global AllProcessCheckers
-    global HotkeyConflicts
-    global HotkeyRegErrors
-    global PathCMappingByModSource
-    global PathCModSessions
-    global PathCModsUsed
-    global PathCSourceKeysUsed
-    global PathCWheelRoutePredicates
     global CaptureTarget
+    global CaptureOnCaptured
     global CaptureGui
     global CaptureDisplayText
     global CaptureTimer
@@ -151,17 +137,10 @@ ResetAppState() {
     global ProcessPickerGui
     global CurrentLangCode
     global DispatchSendHook
+    global ForegroundProcessHook
 
     AllConfigs.Length := 0
-    CurrentConfigName := ""
-    CurrentConfigFile := ""
-    CurrentProcessMode := "global"
-    CurrentProcess := ""
-    CurrentProcessList := []
-    CurrentExcludeProcess := ""
-    CurrentExcludeProcessList := []
-    CurrentConfigEnabled := true
-    Mappings.Length := 0
+    ResetConfigStoreForTests()
 
     MainGui := ""
     ConfigDDL := ""
@@ -172,6 +151,7 @@ ResetAppState() {
     StatusDetailLink := ""
     StatusHasWarning := false
     StatusDetailHovered := false
+    LastReloadResult := ""
     BtnAddMapping := ""
     BtnEditMapping := ""
     BtnCopyMapping := ""
@@ -192,15 +172,9 @@ ResetAppState() {
     ClearMap(HoldTimers)
     ClearMap(InterceptModKeys)
     AllProcessCheckers.Length := 0
-    HotkeyConflicts.Length := 0
-    HotkeyRegErrors.Length := 0
-    ClearMap(PathCMappingByModSource)
-    ClearMap(PathCModSessions)
-    ClearMap(PathCModsUsed)
-    ClearMap(PathCSourceKeysUsed)
-    PathCWheelRoutePredicates.Length := 0
 
     CaptureTarget := ""
+    CaptureOnCaptured := ""
     CaptureGui := ""
     CaptureDisplayText := ""
     CaptureTimer := ""
@@ -212,6 +186,7 @@ ResetAppState() {
     ProcessPickerGui := ""
     CurrentLangCode := "en-US"
     DispatchSendHook := ""
+    ForegroundProcessHook := ""
 }
 
 CleanupTestWindows() {
@@ -387,29 +362,11 @@ AssertThrows(fn, message := "") {
 }
 
 MakeMapping(modifierKey, sourceKey, targetKey, holdRepeat := 0, repeatDelay := 300, repeatInterval := 50, passthroughMod := 0) {
-    mapping := Map()
-    mapping["ModifierKey"] := modifierKey
-    mapping["SourceKey"] := sourceKey
-    mapping["TargetKey"] := targetKey
-    mapping["HoldRepeat"] := holdRepeat
-    mapping["RepeatDelay"] := repeatDelay
-    mapping["RepeatInterval"] := repeatInterval
-    mapping["PassthroughMod"] := passthroughMod
-    return mapping
+    return Mapping.Make(modifierKey, sourceKey, targetKey, holdRepeat, repeatDelay, repeatInterval, passthroughMod)
 }
 
 BuildConfigRecord(configName, processMode := "global", process := "", excludeProcess := "", enabled := true, mappings := "") {
-    cfg := Map()
-    cfg["name"] := configName
-    cfg["file"] := CONFIG_DIR "\" configName ".ini"
-    cfg["processMode"] := processMode
-    cfg["process"] := process
-    cfg["processList"] := ParseProcessList(process)
-    cfg["excludeProcess"] := excludeProcess
-    cfg["excludeProcessList"] := ParseProcessList(excludeProcess)
-    cfg["enabled"] := enabled
-    cfg["mappings"] := mappings = "" ? [] : mappings
-    return cfg
+    return ConfigRecord.Make(configName, processMode, process, excludeProcess, enabled, mappings = "" ? [] : mappings)
 }
 
 SeedConfigFile(configName, processMode := "global", process := "", excludeProcess := "", mappings := "", enabled := 1) {
@@ -421,15 +378,10 @@ SeedConfigFile(configName, processMode := "global", process := "", excludeProces
     IniWrite(excludeProcess, configFile, "Meta", "ExcludeProcess")
 
     if (mappings != "") {
-        for idx, mapping in mappings {
+        for idx, m in mappings {
             sectionName := "Mapping" idx
-            IniWrite(mapping["ModifierKey"], configFile, sectionName, "ModifierKey")
-            IniWrite(mapping["SourceKey"], configFile, sectionName, "SourceKey")
-            IniWrite(mapping["TargetKey"], configFile, sectionName, "TargetKey")
-            IniWrite(mapping["HoldRepeat"], configFile, sectionName, "HoldRepeat")
-            IniWrite(mapping["RepeatDelay"], configFile, sectionName, "RepeatDelay")
-            IniWrite(mapping["RepeatInterval"], configFile, sectionName, "RepeatInterval")
-            IniWrite(mapping["PassthroughMod"], configFile, sectionName, "PassthroughMod")
+            for iniKey, iniVal in Mapping.ToIniPairs(m)
+                IniWrite(iniVal, configFile, sectionName, iniKey)
         }
     }
 
@@ -460,6 +412,12 @@ DisableSendCapture() {
 
 RecordCapturedSend(sendKey) {
     CapturedSendKeys.Push(sendKey)
+}
+
+; Script the foreground process name seen by the scope-check path
+SetForegroundProcess(name) {
+    global ForegroundProcessHook
+    ForegroundProcessHook := (*) => name
 }
 
 WaitForCondition(predicate, timeoutMs := 1000, pollIntervalMs := 25, failureMessage := "Timed out waiting for condition.") {

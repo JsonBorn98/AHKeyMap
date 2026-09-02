@@ -10,19 +10,21 @@ global __AHKM_CONFIG_DIR := A_Temp "\AHKeyMapTests\" A_ScriptName "-" A_TickCoun
 CurrentLangCode := "en-US"
 
 RegisterTest("DetectHotkeyConflicts reports scope overlap and Path B/C modifier conflicts", Test_DetectHotkeyConflicts_ReportsScopeAndModifierIssues)
-RegisterTest("ReloadAllHotkeys tracks Path A/B/C registration state and cleanup", Test_ReloadAllHotkeys_TracksDispatchStateAndCleanup)
-RegisterTest("RegisterPathCMapping stores mapping metadata for routed combos", Test_RegisterPathCMapping_StoresMappingMetadata)
-RegisterTest("Path C wheel routing stays disabled without an active modifier session", Test_PathC_ShouldRouteWheelSource_FalseWithoutSession)
-RegisterTest("Path C wheel routing stays disabled when the active session does not match scope", Test_PathC_ShouldRouteWheelSource_FalseWhenScopeDoesNotMatch)
-RegisterTest("Path C wheel routing enables when an active session and scope-matching mapping exist", Test_PathC_ShouldRouteWheelSource_TrueWhenSessionAndScopeMatch)
-RegisterTest("Path C falls back to the raw source key when no session matches", Test_PathC_SourceDown_FallsBackToRawSourceKey)
-RegisterTest("Path C routed mappings dispatch target keys and mark the session as a gesture", Test_PathC_SourceDown_DispatchesMappedTarget)
-RegisterTest("Path C wheel mappings dispatch target keys and mark the session as a gesture", Test_PathC_WheelSourceDown_DispatchesMappedTarget)
-RegisterTest("Path C source key up stops repeat timers for matching mappings", Test_PathC_SourceUp_StopsActiveRepeats)
-RegisterTest("Path C gesture completion dismisses the RButton menu with Escape", Test_PathC_ModUp_DismissesContextMenuAfterGesture)
+RegisterTest("ReloadAllHotkeys registers Path A/B hotkeys and delegates Path C to the engine", Test_ReloadAllHotkeys_DelegatesPathCToEngineAndCleansUp)
+RegisterTest("Path C wheel routing stays disabled without an active modifier session", Test_PathCEngine_ShouldRouteWheel_FalseWithoutSession)
+RegisterTest("Path C wheel routing stays disabled when the active session does not match scope", Test_PathCEngine_ShouldRouteWheel_FalseWhenScopeDoesNotMatch)
+RegisterTest("Path C wheel routing enables when an active session and scope-matching mapping exist", Test_PathCEngine_ShouldRouteWheel_TrueWhenSessionAndScopeMatch)
+RegisterTest("Path C falls back to the raw source key when no session matches", Test_PathCEngine_SourceDown_FallsBackToRawSourceKey)
+RegisterTest("Path C AddMapping ignores mappings that are not passthrough combos", Test_PathCEngine_AddMapping_IgnoresNonPathCMappings)
+RegisterTest("Path C routed mappings dispatch target keys and mark the session as a gesture", Test_PathCEngine_SourceDown_DispatchesMappedTarget)
+RegisterTest("Path C wheel mappings dispatch target keys and mark the session as a gesture", Test_PathCEngine_WheelSourceDown_DispatchesMappedTarget)
+RegisterTest("Path C source key up stops repeat timers for matching mappings", Test_PathCEngine_SourceUp_StopsActiveRepeats)
+RegisterTest("Path C gesture completion dismisses the RButton menu with Escape", Test_PathCEngine_ModUp_DismissesContextMenuAfterGesture)
+RegisterTest("Path C ModDown resets stale session before starting new one", Test_PathCEngine_ModDown_ResetsStaleSession)
+RegisterTest("Path C Commit registers routing hotkeys and Reset disables them again", Test_PathCEngine_CommitAndReset_RoundTrip)
+RegisterTest("Path C Commit reports registration failures through its return value", Test_PathCEngine_Commit_ReportsRegErrors)
 RegisterTest("DetectHotkeyConflicts reports no conflict for disabled configs", Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs)
 RegisterTest("DetectHotkeyConflicts reports no conflict for disjoint scopes", Test_DetectHotkeyConflicts_NoConflictForDisjointScopes)
-RegisterTest("Path C ModDown resets stale session before starting new one", Test_PathC_ModDown_ResetsStaleSession)
 
 RunRegisteredTests()
 
@@ -37,14 +39,14 @@ Test_DetectHotkeyConflicts_ReportsScopeAndModifierIssues() {
     AllConfigs.Push(cfg3)
     AllConfigs.Push(cfg4)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
-    AssertEq(2, HotkeyConflicts.Length)
-    AssertEq("F13", HotkeyConflicts[1].hotkey)
-    AssertEq("CapsLock (Path B/C conflict)", HotkeyConflicts[2].hotkey)
+    AssertEq(2, conflicts.Length)
+    AssertEq("F13", conflicts[1].hotkey)
+    AssertEq("CapsLock (Path B/C conflict)", conflicts[2].hotkey)
 }
 
-Test_ReloadAllHotkeys_TracksDispatchStateAndCleanup() {
+Test_ReloadAllHotkeys_DelegatesPathCToEngineAndCleansUp() {
     mappings := [
         MakeMapping("", "F21", "^c"),
         MakeMapping("CapsLock", "F22", "^v", 0, 300, 50, 0),
@@ -53,141 +55,234 @@ Test_ReloadAllHotkeys_TracksDispatchStateAndCleanup() {
     ]
     AllConfigs.Push(BuildConfigRecord("DispatchCfg", "global", "", "", true, mappings))
 
-    ReloadAllHotkeys()
+    result := ReloadAllHotkeys()
 
-    AssertTrue(ActiveHotkeys.Length >= 4)
+    ; Path A/B registration bookkeeping stays in the shared globals
+    AssertTrue(ActiveHotkeys.Length >= 3)
     AssertEq(1, InterceptModKeys.Count)
-    AssertMapHas(PathCMappingByModSource, "RAlt|F23")
-    AssertMapHas(PathCMappingByModSource, "RButton|WheelUp")
-    AssertMapHas(PathCModsUsed, "RAlt")
-    AssertMapHas(PathCModsUsed, "RButton")
-    AssertMapHas(PathCSourceKeysUsed, "F23")
-    AssertMapHas(PathCSourceKeysUsed, "WheelUp")
-    AssertEq(1, PathCWheelRoutePredicates.Length)
-    AssertEq(0, HotkeyRegErrors.Length)
+
+    ; Engine output arrives through the return value, not globals
+    AssertEq(0, result.conflicts.Length)
+    AssertEq(0, result.regErrors.Length)
+
+    ; Path C behavior is reachable through the engine's public interface
+    engine := PathCEngine.Instance
+    AssertEq("Idle", engine.GetSessionState("RAlt"))
+    AssertEq("Idle", engine.GetSessionState("RButton"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp"))
+
+    ; RAlt session: hold modifier, press source -> mapped target fires
+    engine.OnModDown("RAlt")
+    AssertEq("HeldNoCombo", engine.GetSessionState("RAlt"))
+    EnableSendCapture()
+    engine.OnSourceDown("F23")
+    AssertEq(1, CapturedSendKeys.Length)
+    AssertEq("^x", CapturedSendKeys[1])
+    AssertEq("GestureActive", engine.GetSessionState("RAlt"))
+
+    ; RButton wheel session: active session plus mapping enables wheel routing
+    engine.OnModDown("RButton")
+    AssertTrue(engine.ShouldRouteWheel("WheelUp"))
+    engine.OnSourceDown("WheelUp")
+    AssertEq("^{Tab}", CapturedSendKeys[2])
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
 
     UnregisterAllHotkeys()
 
+    ; Engine reset ends sessions and forgets all mappings
     AssertEq(0, ActiveHotkeys.Length)
     AssertEq(0, InterceptModKeys.Count)
     AssertEq(0, HoldTimers.Count)
-    AssertEq(0, PathCMappingByModSource.Count)
-    AssertEq(0, PathCModSessions.Count)
-    AssertEq(0, PathCModsUsed.Count)
-    AssertEq(0, PathCSourceKeysUsed.Count)
-    AssertEq(0, PathCWheelRoutePredicates.Length)
+    AssertEq("Idle", engine.GetSessionState("RAlt"))
+    AssertEq("Idle", engine.GetSessionState("RButton"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp"))
+    DisableSendCapture()
 }
 
-Test_RegisterPathCMapping_StoresMappingMetadata() {
-    mapping := MakeMapping("RButton", "WheelUp", "^Tab", 1, 300, 50, 1)
-
-    RegisterPathCMapping(mapping, "Cfg|1", "Cfg", "")
-
-    AssertMapHas(PathCMappingByModSource, "RButton|WheelUp")
-    entry := PathCMappingByModSource["RButton|WheelUp"][1]
-    AssertEq("Cfg|1", entry.id)
-    AssertEq("^Tab", entry.targetKey)
-    AssertEq(1, entry.holdRepeat)
-    AssertMapHas(PathCModsUsed, "RButton")
-    AssertMapHas(PathCSourceKeysUsed, "WheelUp")
-}
-
-Test_PathC_ShouldRouteWheelSource_FalseWithoutSession() {
-    RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+Test_PathCEngine_ShouldRouteWheel_FalseWithoutSession() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
 
     AssertTrue(IsWheelSourceKey("WheelUp"))
     AssertTrue(IsWheelSourceKey("^WheelDown"))
     AssertFalse(IsWheelSourceKey("F13"))
-    AssertFalse(PathC_ShouldRouteWheelSource("WheelUp"))
-    AssertFalse(PathC_ShouldRouteWheelSource("WheelUp", "*WheelUp"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp", "*WheelUp"))
 }
 
-Test_PathC_ShouldRouteWheelSource_FalseWhenScopeDoesNotMatch() {
-    checker := (*) => false
-    RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
-    PathC_ModDownCallback("RButton")
+Test_PathCEngine_ShouldRouteWheel_FalseWhenScopeDoesNotMatch() {
+    engine := PathCEngine()
+    cfg := BuildConfigRecord("Cfg", "include", "notepad.exe")
+    checker := MakeProcessChecker(cfg)
+    engine.AddMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
+    engine.OnModDown("RButton")
+    SetForegroundProcess("msedge.exe")
 
-    AssertFalse(PathC_ShouldRouteWheelSource("WheelUp"))
-    AssertFalse(PathC_ShouldRouteWheelSource("WheelUp", "*WheelUp"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp"))
+    AssertFalse(engine.ShouldRouteWheel("WheelUp", "*WheelUp"))
+    engine.OnModUp("RButton")
 }
 
-Test_PathC_ShouldRouteWheelSource_TrueWhenSessionAndScopeMatch() {
-    checker := (*) => true
-    RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
-    PathC_ModDownCallback("RButton")
+Test_PathCEngine_ShouldRouteWheel_TrueWhenSessionAndScopeMatch() {
+    engine := PathCEngine()
+    cfg := BuildConfigRecord("Cfg", "include", "notepad.exe")
+    checker := MakeProcessChecker(cfg)
+    engine.AddMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", checker)
+    engine.OnModDown("RButton")
+    SetForegroundProcess("notepad.exe")
 
-    AssertTrue(PathC_ShouldRouteWheelSource("WheelUp"))
-    AssertTrue(PathC_ShouldRouteWheelSource("WheelUp", "*WheelUp"))
+    AssertTrue(engine.ShouldRouteWheel("WheelUp"))
+    AssertTrue(engine.ShouldRouteWheel("WheelUp", "*WheelUp"))
+    engine.OnModUp("RButton")
 }
 
-Test_PathC_SourceDown_FallsBackToRawSourceKey() {
+Test_PathCEngine_SourceDown_FallsBackToRawSourceKey() {
+    engine := PathCEngine()
     EnableSendCapture()
 
-    PathC_SourceDownCallback("F13")
+    engine.OnSourceDown("F13")
 
     AssertEq(1, CapturedSendKeys.Length)
     AssertEq("{F13}", CapturedSendKeys[1])
 }
 
-Test_PathC_SourceDown_DispatchesMappedTarget() {
-    RegisterPathCMapping(MakeMapping("RButton", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
-    PathC_ModDownCallback("RButton")
+Test_PathCEngine_AddMapping_IgnoresNonPathCMappings() {
+    engine := PathCEngine()
     EnableSendCapture()
 
-    PathC_SourceDownCallback("F13")
+    ; Path A (no modifier) and Path B (no passthrough) shapes must be ignored
+    engine.AddMapping(MakeMapping("", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    engine.AddMapping(MakeMapping("RButton", "F14", "^v", 0, 300, 50, 0), "Cfg|2", "Cfg", "")
 
-    session := PathC_GetSession("RButton")
+    engine.OnModDown("RButton")
+    engine.OnSourceDown("F13")
+    engine.OnSourceDown("F14")
+
+    ; Neither mapping is registered, so both presses fall back to their raw keys
+    AssertEq(2, CapturedSendKeys.Length)
+    AssertEq("{F13}", CapturedSendKeys[1])
+    AssertEq("{F14}", CapturedSendKeys[2])
+    AssertEq("HeldNoCombo", engine.GetSessionState("RButton"))
+    engine.OnModUp("RButton")
+}
+
+Test_PathCEngine_SourceDown_DispatchesMappedTarget() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    engine.OnModDown("RButton")
+    EnableSendCapture()
+
+    engine.OnSourceDown("F13")
+
     AssertEq(1, CapturedSendKeys.Length)
     AssertEq("^c", CapturedSendKeys[1])
-    AssertEq("GestureActive", session.state)
-    AssertTrue(session.isGesture)
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
+    engine.OnModUp("RButton")
 }
 
-Test_PathC_WheelSourceDown_DispatchesMappedTarget() {
-    RegisterPathCMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
-    PathC_ModDownCallback("RButton")
+Test_PathCEngine_WheelSourceDown_DispatchesMappedTarget() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    engine.OnModDown("RButton")
     EnableSendCapture()
 
-    PathC_SourceDownCallback("WheelUp")
+    engine.OnSourceDown("WheelUp")
 
-    session := PathC_GetSession("RButton")
     AssertEq(1, CapturedSendKeys.Length)
     AssertEq("^{Tab}", CapturedSendKeys[1])
-    AssertEq("GestureActive", session.state)
-    AssertTrue(session.isGesture)
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
+    engine.OnModUp("RButton")
 }
 
-Test_PathC_SourceUp_StopsActiveRepeats() {
-    mappingId := "Cfg|1"
-    session := PathC_GetSession("RButton")
-    session.state := "GestureActive"
-    session.activeSources["F14"] := [mappingId]
-    session.repeatMappings[mappingId] := true
-    HoldTimers[mappingId] := {
-        fn: NoOpTimer,
-        startFn: NoOpTimer,
-        interval: 50,
-        active: true
-    }
-
-    PathC_SourceUpCallback("F14")
-
-    AssertFalse(HoldTimers.Has(mappingId))
-    AssertFalse(session.activeSources.Has("F14"))
-    AssertFalse(session.repeatMappings.Has(mappingId))
-}
-
-Test_PathC_ModUp_DismissesContextMenuAfterGesture() {
+Test_PathCEngine_SourceUp_StopsActiveRepeats() {
+    engine := PathCEngine()
+    ; Hold-repeat mapping: immediate send on press, then repeats after the delay
+    engine.AddMapping(MakeMapping("RButton", "F14", "^v", 1, 200, 50, 1), "Cfg|1", "Cfg", "")
+    engine.OnModDown("RButton")
     EnableSendCapture()
-    session := PathC_GetSession("RButton")
-    session.state := "GestureActive"
-    session.isGesture := true
 
-    PathC_ModUpCallback("RButton")
+    engine.OnSourceDown("F14")
+    AssertEq(1, CapturedSendKeys.Length)
+    AssertEq("^v", CapturedSendKeys[1])
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
+
+    ; Release the source key: no further sends may occur within the repeat window
+    engine.OnSourceUp("F14")
+    Sleep 400
+    AssertEq(1, CapturedSendKeys.Length)
+
+    ; Re-pressing the source still triggers the mapping (nothing got stuck)
+    engine.OnSourceDown("F14")
+    AssertEq(2, CapturedSendKeys.Length)
+    AssertEq("^v", CapturedSendKeys[2])
+
+    engine.OnSourceUp("F14")
+    engine.OnModUp("RButton")
+    AssertEq("Idle", engine.GetSessionState("RButton"))
+}
+
+Test_PathCEngine_ModUp_DismissesContextMenuAfterGesture() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    engine.OnModDown("RButton")
+    EnableSendCapture()
+
+    ; Trigger a gesture so the session is marked as a gesture session
+    engine.OnSourceDown("F13")
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
+
+    engine.OnModUp("RButton")
     WaitForCapturedSend("{Escape}", 400)
 
-    AssertEq("Idle", session.state)
-    AssertFalse(session.isGesture)
+    AssertEq("Idle", engine.GetSessionState("RButton"))
+}
+
+Test_PathCEngine_ModDown_ResetsStaleSession() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+
+    ; Start a session and let it trigger a gesture
+    engine.OnModDown("RButton")
+    AssertEq("HeldNoCombo", engine.GetSessionState("RButton"))
+    engine.OnSourceDown("F13")
+    AssertEq("GestureActive", engine.GetSessionState("RButton"))
+
+    ; Second ModDown without prior Up should cleanly restart the session
+    engine.OnModDown("RButton")
+
+    AssertEq("HeldNoCombo", engine.GetSessionState("RButton"))
+    engine.OnModUp("RButton")
+}
+
+Test_PathCEngine_CommitAndReset_RoundTrip() {
+    engine := PathCEngine()
+    engine.AddMapping(MakeMapping("RButton", "WheelUp", "^Tab", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    engine.AddMapping(MakeMapping("RAlt", "F23", "^x", 0, 300, 50, 1), "Cfg|2", "Cfg", "")
+
+    ; Commit registers the routing hotkeys without errors
+    regErrors := engine.Commit()
+    AssertEq(0, regErrors.Length)
+
+    ; Reset disables them and clears all mapping state
+    engine.Reset()
+    engine.OnModDown("RButton")
+    AssertFalse(engine.ShouldRouteWheel("WheelUp"))
+    AssertEq("HeldNoCombo", engine.GetSessionState("RButton"))
+    engine.OnModUp("RButton")
+    AssertEq("Idle", engine.GetSessionState("RButton"))
+}
+
+Test_PathCEngine_Commit_ReportsRegErrors() {
+    engine := PathCEngine()
+    ; Invalid key names must fail registration and surface in the returned error list
+    engine.AddMapping(MakeMapping("RButton", "NotARealKey", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
+    regErrors := engine.Commit()
+
+    AssertEq(2, regErrors.Length)
+    AssertArrayContains(regErrors, "*NotARealKey")
+    AssertArrayContains(regErrors, "*NotARealKey Up")
+
+    engine.Reset()
 }
 
 Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs() {
@@ -198,10 +293,10 @@ Test_DetectHotkeyConflicts_NoConflictForDisabledConfigs() {
     AllConfigs.Push(cfg1)
     AllConfigs.Push(cfg2)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
     ; Disabled config should not produce a conflict
-    AssertEq(0, HotkeyConflicts.Length)
+    AssertEq(0, conflicts.Length)
 }
 
 Test_DetectHotkeyConflicts_NoConflictForDisjointScopes() {
@@ -212,30 +307,8 @@ Test_DetectHotkeyConflicts_NoConflictForDisjointScopes() {
     AllConfigs.Push(cfg1)
     AllConfigs.Push(cfg2)
 
-    DetectHotkeyConflicts()
+    conflicts := DetectHotkeyConflicts()
 
     ; Disjoint process scopes should not conflict
-    AssertEq(0, HotkeyConflicts.Length)
-}
-
-Test_PathC_ModDown_ResetsStaleSession() {
-    ; Start a session, leaving it in non-Idle state
-    PathC_ModDownCallback("RButton")
-    session := PathC_GetSession("RButton")
-    AssertEq("HeldNoCombo", session.state)
-
-    ; Mark session as having a gesture and active sources
-    session.state := "GestureActive"
-    session.isGesture := true
-    session.activeSources["F13"] := ["Cfg|1"]
-
-    ; Second ModDown without prior Up should reset
-    PathC_ModDownCallback("RButton")
-    session := PathC_GetSession("RButton")
-
-    ; Session should be cleanly restarted
-    AssertEq("HeldNoCombo", session.state)
-    AssertFalse(session.isGesture)
-    AssertEq(0, session.activeSources.Count)
-    AssertEq(0, session.repeatMappings.Count)
+    AssertEq(0, conflicts.Length)
 }

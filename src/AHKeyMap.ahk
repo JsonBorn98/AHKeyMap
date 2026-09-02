@@ -10,7 +10,7 @@ Persistent
 
 ;@Ahk2Exe-SetName AHKeyMap
 ;@Ahk2Exe-SetDescription AHKeyMap - Key remapping tool
-;@Ahk2Exe-SetVersion 2.9.2
+;@Ahk2Exe-SetVersion 2.9.10
 ;@Ahk2Exe-SetCopyright Copyright (c) 2026
 ;@Ahk2Exe-SetMainIcon ..\assets\icon.ico
 
@@ -23,7 +23,7 @@ if !IsSet(__AHKM_CONFIG_DIR)
     global __AHKM_CONFIG_DIR := ""
 
 global APP_NAME := "AHKeyMap"
-global APP_VERSION := "2.9.2"
+global APP_VERSION := "2.9.10"
 global SCRIPT_DIR := A_ScriptDir
 global APP_ROOT := (A_IsCompiled ? SCRIPT_DIR : SCRIPT_DIR "\..")
 global CONFIG_DIR := (__AHKM_CONFIG_DIR != "" ? __AHKM_CONFIG_DIR : APP_ROOT "\configs")
@@ -41,17 +41,8 @@ global CONTEXT_MENU_DISMISS_DELAY := 10 ; context menu dismissal delay (ms)
 global DEFAULT_REPEAT_DELAY := 300      ; default long-press delay (ms)
 global DEFAULT_REPEAT_INTERVAL := 50    ; default long-press interval (ms)
 
-; Config-related globals
+; Config-related globals (AllConfigs is owned and mutated by ConfigStore)
 global AllConfigs := []
-global CurrentConfigName := ""
-global CurrentConfigFile := ""
-global CurrentProcessMode := "global"
-global CurrentProcess := ""
-global CurrentProcessList := []
-global CurrentExcludeProcess := ""
-global CurrentExcludeProcessList := []
-global CurrentConfigEnabled := true
-global Mappings := []
 
 ; GUI control references
 global MainGui := ""
@@ -63,6 +54,9 @@ global StatusText := ""
 global StatusDetailLink := ""
 global StatusHasWarning := false
 global StatusDetailHovered := false
+; Last ReloadAllHotkeys result ({conflicts, regErrors}); ui-owned input for
+; the status bar and its detail popup
+global LastReloadResult := ""
 global BtnAddMapping := ""
 global BtnEditMapping := ""
 global BtnCopyMapping := ""
@@ -83,18 +77,13 @@ global ActiveHotkeys := []
 global HoldTimers := Map()
 global InterceptModKeys := Map()
 global AllProcessCheckers := []
-global HotkeyConflicts := []
-global HotkeyRegErrors := []
-global PathCMappingByModSource := Map()
-global PathCModSessions := Map()
-global PathCModsUsed := Map()
-global PathCSourceKeysUsed := Map()
-global PathCWheelRoutePredicates := []
 global DispatchSendHook := ""
+global ForegroundProcessHook := ""
 
 ; Key capture globals
 global IsCapturing := false
 global CaptureTarget := ""
+global CaptureOnCaptured := ""
 global CaptureGui := ""
 global CaptureDisplayText := ""
 global CaptureTimer := ""
@@ -109,9 +98,12 @@ global ProcessPickerGui := ""
 ; ============================================================================
 ; Include modules
 ; ============================================================================
+#Include "shared/Schema.ahk"
 #Include "core/Config.ahk"
+#Include "core/ConfigStore.ahk"
 #Include "shared/Utils.ahk"
 #Include "core/Localization.ahk"
+#Include "core/PathCEngine.ahk"
 #Include "core/HotkeyEngine.ahk"
 #Include "core/KeyCapture.ahk"
 #Include "ui/GuiMain.ahk"
@@ -180,6 +172,7 @@ if !__AHKM_TEST_MODE
 
 StartApp() {
     global CurrentLangCode
+    global LastReloadResult
 
     ; Ensure config directory exists
     if !DirExist(CONFIG_DIR)
@@ -198,7 +191,7 @@ StartApp() {
     if (CurrentLangCode = "")
         CurrentLangCode := "en-US"
 
-    ; Build main GUI
+    ; Build main GUI (registers RenderFromState as the store's OnChanged)
     BuildMainGui()
 
     ; Load all configs into AllConfigs
@@ -207,11 +200,17 @@ StartApp() {
     ; At startup, sync enabled states and clean stale keys in _state.ini
     SaveEnabledStates()
 
-    ; Refresh config dropdown (GUI only)
-    RefreshConfigList(lastConfig)
+    ; Register hotkeys for all enabled configs; the store notifies the
+    ; render seam with the reload result
+    LastReloadResult := ReloadAllHotkeys()
 
-    ; Register hotkeys for all enabled configs
-    ReloadAllHotkeys()
+    ; Select and render the last used config (render-only, no reload).
+    ; When the recorded name no longer exists on disk, fall back to the
+    ; first config so the store and the dropdown stay consistent — this is
+    ; a store-side decision because render functions never mutate the store.
+    if (ConfigStore.Instance.FindIndex(lastConfig) = 0 && AllConfigs.Length > 0)
+        lastConfig := AllConfigs[1]["name"]
+    ConfigStore.Instance.Select(lastConfig)
 
     ; Show main window
     MainGui.Show("w720 h500")
@@ -220,14 +219,13 @@ StartApp() {
 ; Rebuild main window for language switch (soft reload)
 RebuildMainWindowForLanguageChange() {
     global MainGui
-    global CurrentConfigName
     global EditGui
     global CaptureGui
     global ProcessPickerOpen
     global ProcessPickerGui
 
     ; Record current config name and window position/size
-    currentConfig := CurrentConfigName
+    currentConfig := ConfigStore.Instance.SelectedName
     x := 0, y := 0, w := 0, h := 0
     try {
         if (MainGui != "")
@@ -256,16 +254,16 @@ RebuildMainWindowForLanguageChange() {
     }
 
     ; Rebuild main window and tray menu using current language
+    ; (BuildMainGui re-registers RenderFromState as the store's OnChanged)
     BuildMainGui()
 
-    ; Refresh config list and GUI state with the previously selected config
-    ; Clear CurrentConfigName so OnConfigSelect reloads config and mapping list
-    global CurrentConfigName
-    CurrentConfigName := ""
-    RefreshConfigList(currentConfig)
+    ; Clear the store selection so the reload below re-selects and re-renders
+    ConfigStore.Instance.Select("")
 
-    ; Refresh status bar with the new language
-    UpdateStatusText()
+    ; Re-select the previous config through the store: notifies the render
+    ; seam, which re-renders the new-language window from state (hotkeys are
+    ; untouched by a language switch, so the last reload result stays valid)
+    ConfigStore.Instance.Select(currentConfig)
 
     ; Restore previous window position/size, or use default dimensions
     showOpts := ""

@@ -14,6 +14,12 @@ RegisterTest("VkToDisplayName passes through unknown key names", Test_VkToDispla
 RegisterTest("IsModifierKey detects all 8 modifier keys and rejects non-modifiers", Test_IsModifierKey_DetectsAllModifiers)
 RegisterTest("ModifierToPrefix returns correct AHK prefix symbols", Test_ModifierToPrefix_ReturnsCorrectSymbols)
 RegisterTest("ModifierPrefixToKeyName reverses prefix to key name", Test_ModifierPrefixToKeyName_ReversesPrefix)
+RegisterTest("BuildAhkKey folds modifiers with the main key", Test_BuildAhkKey_FoldsModifiersWithMainKey)
+RegisterTest("BuildAhkKey modifier mode drops prefixes and keeps the main key", Test_BuildAhkKey_ModifierModeDropsPrefixes)
+RegisterTest("BuildAhkKey falls back to ModifierPrefixToKeyName on modifier-only capture", Test_BuildAhkKey_ModifierOnlyFallsBack)
+RegisterTest("BuildAhkKey combines held modifiers with wheel input", Test_BuildAhkKey_CombinesModifiersWithWheel)
+RegisterTest("BuildAhkKey takes the first main key from a multi-key capture", Test_BuildAhkKey_MultiKeyKeepsFirstMainKey)
+RegisterTest("BuildAhkKey returns empty string for an empty capture", Test_BuildAhkKey_EmptyCaptureReturnsEmpty)
 
 RunRegisteredTests()
 
@@ -144,4 +150,51 @@ Test_ModifierPrefixToKeyName_ReversesPrefix() {
     ; Combined prefixes: returns highest-priority match (# > ! > + > ^)
     AssertEq("LWin", ModifierPrefixToKeyName("^+!#"))
     AssertEq("Alt", ModifierPrefixToKeyName("^+!"))
+}
+
+Test_BuildAhkKey_FoldsModifiersWithMainKey() {
+    ; Source/target mode: prefixes fold in capture order before the main key
+    AssertEq("^A", BuildAhkKey(["^", "A"], "source"))
+    AssertEq("^+C", BuildAhkKey(["^", "+", "C"], "target"))
+    AssertEq("!F5", BuildAhkKey(["!", "F5"], "source"))
+    AssertEq("!F5", BuildAhkKey(["!", "F5"], "target"))
+
+    ; A bare key without modifiers passes through unchanged
+    AssertEq("F13", BuildAhkKey(["F13"], "source"))
+}
+
+Test_BuildAhkKey_ModifierModeDropsPrefixes() {
+    ; Modifier capture never prefixes the result with modifier symbols
+    AssertEq("A", BuildAhkKey(["^", "A"], "modifier"))
+    AssertEq("NumpadEnter", BuildAhkKey(["^", "+", "NumpadEnter"], "modifier"))
+}
+
+Test_BuildAhkKey_ModifierOnlyFallsBack() {
+    ; Only modifiers pressed: fall back to a plain modifier key name
+    AssertEq("Ctrl", BuildAhkKey(["^"], "modifier"))
+    AssertEq("Shift", BuildAhkKey(["^", "+"], "source"))
+    AssertEq("Alt", BuildAhkKey(["^", "+", "!"], "target"))
+    AssertEq("LWin", BuildAhkKey(["^", "+", "!", "#"], "modifier"))
+}
+
+Test_BuildAhkKey_CombinesModifiersWithWheel() {
+    ; Wheel immediate-confirm input folds like any other main key
+    AssertEq("^WheelUp", BuildAhkKey(["^", "WheelUp"], "source"))
+    AssertEq("+!WheelDown", BuildAhkKey(["+", "!", "WheelDown"], "target"))
+
+    ; A bare wheel without held modifiers passes through unchanged
+    AssertEq("WheelUp", BuildAhkKey(["WheelUp"], "source"))
+}
+
+Test_BuildAhkKey_MultiKeyKeepsFirstMainKey() {
+    ; Polling keeps the largest combo seen; folding takes its first main key
+    AssertEq("^A", BuildAhkKey(["^", "A", "S"], "source"))
+    AssertEq("A", BuildAhkKey(["A", "S", "D"], "modifier"))
+    AssertEq("+!X", BuildAhkKey(["+", "!", "X", "C"], "target"))
+}
+
+Test_BuildAhkKey_EmptyCaptureReturnsEmpty() {
+    AssertEq("", BuildAhkKey([], "modifier"))
+    AssertEq("", BuildAhkKey([], "source"))
+    AssertEq("", BuildAhkKey([], "target"))
 }

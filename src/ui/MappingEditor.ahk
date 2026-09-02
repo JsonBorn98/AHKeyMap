@@ -5,13 +5,12 @@
 
 ; Declare globals shared across modules
 global APP_NAME
-global Mappings
 global MainGui
-global CurrentConfigName
 global DEFAULT_REPEAT_DELAY
 global DEFAULT_REPEAT_INTERVAL
 
-; GUI control references (shared with KeyCapture module)
+; GUI control references (editor-owned protocol: .Value holds the display
+; text, .ahkKey holds the AHK key syntax)
 global EditModifierEdit
 global EditSourceEdit
 global EditTargetEdit
@@ -63,8 +62,9 @@ ShowEditMappingGui() {
     global EditPassthroughCB := EditGui.AddCheckbox("x10 y175 w370 h23 vPassthroughMod", L("MappingEditor.PassthroughLabel"))
 
     ; In edit mode, populate fields from existing mapping
-    if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {
-        m := Mappings[EditingIndex]
+    mappings := ConfigStore.Instance.SelectedMappings()
+    if (EditingIndex > 0 && EditingIndex <= mappings.Length) {
+        m := mappings[EditingIndex]
         EditModifierEdit.Value := KeyToDisplay(m["ModifierKey"])
         EditModifierEdit.ahkKey := m["ModifierKey"]
         EditSourceEdit.Value := KeyToDisplay(m["SourceKey"])
@@ -97,6 +97,46 @@ OnClearModifier(*) {
     UpdatePassthroughState()
 }
 
+; ---- Key capture entries: bind a capture target to its completion callback ----
+
+OnCaptureModifier(*) {
+    StartCapture("modifier", OnModifierCaptured)
+}
+
+OnCaptureSource(*) {
+    StartCapture("source", OnSourceCaptured)
+}
+
+OnCaptureTarget(*) {
+    StartCapture("target", OnTargetCaptured)
+}
+
+; ---- Capture completion callbacks: write the editor's own controls ----
+
+OnModifierCaptured(ahkKey, displayKey) {
+    EditModifierEdit.Value := displayKey
+    EditModifierEdit.ahkKey := ahkKey
+    UpdatePassthroughState()
+}
+
+OnSourceCaptured(ahkKey, displayKey) {
+    EditSourceEdit.Value := displayKey
+    EditSourceEdit.ahkKey := ahkKey
+}
+
+OnTargetCaptured(ahkKey, displayKey) {
+    EditTargetEdit.Value := displayKey
+    EditTargetEdit.ahkKey := ahkKey
+}
+
+; "Keep modifier behavior" option is only meaningful when a modifier is set
+UpdatePassthroughState() {
+    hasModifier := EditModifierEdit.ahkKey != ""
+    EditPassthroughCB.Enabled := hasModifier
+    if !hasModifier
+        EditPassthroughCB.Value := 0
+}
+
 OnHoldRepeatToggle(ctrl, *) {
     isEnabled := ctrl.Value
     EditDelayEdit.Enabled := isEnabled
@@ -119,28 +159,22 @@ OnEditMappingOK(*) {
 
     repeatDelay := EditDelayEdit.Value != "" ? Integer(EditDelayEdit.Value) : DEFAULT_REPEAT_DELAY
     repeatInterval := EditIntervalEdit.Value != "" ? Integer(EditIntervalEdit.Value) : DEFAULT_REPEAT_INTERVAL
-    if (repeatDelay < 10)
-        repeatDelay := 10
-    if (repeatInterval < 10)
-        repeatInterval := 10
 
-    mapping := Map()
-    mapping["ModifierKey"] := modifierAhk
-    mapping["SourceKey"] := sourceAhk
-    mapping["TargetKey"] := targetAhk
-    mapping["HoldRepeat"] := EditHoldRepeatCB.Value ? 1 : 0
-    mapping["RepeatDelay"] := repeatDelay
-    mapping["RepeatInterval"] := repeatInterval
-    mapping["PassthroughMod"] := EditPassthroughCB.Value ? 1 : 0
+    ; Mapping.Make owns the record shape and the min-10 clamping
+    newMapping := Mapping.Make(
+        modifierAhk,
+        sourceAhk,
+        targetAhk,
+        EditHoldRepeatCB.Value ? 1 : 0,
+        repeatDelay,
+        repeatInterval,
+        EditPassthroughCB.Value ? 1 : 0)
 
-    if (EditingIndex > 0 && EditingIndex <= Mappings.Length) {
-        Mappings[EditingIndex] := mapping
+    if (EditingIndex > 0 && EditingIndex <= ConfigStore.Instance.SelectedMappings().Length) {
+        ConfigStore.Instance.ReplaceMapping(EditingIndex, newMapping)
     } else {
-        Mappings.Push(mapping)
+        ConfigStore.Instance.AddMapping(newMapping)
     }
 
-    SaveConfig()
-    RefreshMappingLV()
-    ReloadConfigHotkeys(CurrentConfigName)
     DestroyModalGui(EditGui)
 }

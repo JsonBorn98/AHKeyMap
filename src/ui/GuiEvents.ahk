@@ -7,16 +7,6 @@
 global APP_NAME
 global CONFIG_DIR
 global STATE_FILE
-global AllConfigs
-global CurrentConfigName
-global CurrentConfigFile
-global CurrentProcessMode
-global CurrentProcess
-global CurrentProcessList
-global CurrentExcludeProcess
-global CurrentExcludeProcessList
-global CurrentConfigEnabled
-global Mappings
 global ConfigDDL
 global MappingLV
 global EditingIndex
@@ -27,22 +17,18 @@ global EditingIndex
 
 OnConfigSelect(ctrl, *) {
     selected := ctrl.Text
-    if (selected != "" && selected != CurrentConfigName) {
-        LoadConfigToGui(selected)
-    } else if (selected != "" && CurrentConfigName = "") {
-        LoadConfigToGui(selected)
-    }
+    if (selected = "")
+        return
+    if (selected = ConfigStore.Instance.SelectedName)
+        return
+    ConfigStore.Instance.Select(selected)
 }
 
 ; Enable/disable the current config via checkbox
 OnToggleEnabled(ctrl, *) {
-    if (CurrentConfigName = "")
+    if (ConfigStore.Instance.SelectedName = "")
         return
-    global CurrentConfigEnabled := ctrl.Value ? true : false
-    SyncCurrentToAllConfigs()
-    SaveEnabledStates()
-    ReloadConfigHotkeys(CurrentConfigName)
-    UpdateStatusText()
+    ConfigStore.Instance.SetEnabled(ctrl.Value ? true : false)
 }
 
 OnNewConfig(*) {
@@ -89,43 +75,21 @@ OnNewConfigOK(newGui, *) {
         return
     }
 
-    configFile := CONFIG_DIR "\" configName ".ini"
-    if FileExist(configFile) {
+    if FileExist(CONFIG_DIR "\" configName ".ini") {
         MsgBox(Format(L("GuiEvents.Error.ConfigExists"), configName), APP_NAME, "Icon!")
         return
     }
 
-    ; Determine process mode and process list
     processMode := GetSelectedScopeMode(newGui)
     procStr := ProcTextToStr(newGui["ProcName"].Value)
 
-    IniWrite(configName, configFile, "Meta", "Name")
-    IniWrite(processMode, configFile, "Meta", "ProcessMode")
-    if (processMode = "include") {
-        IniWrite(procStr, configFile, "Meta", "Process")
-        IniWrite("", configFile, "Meta", "ExcludeProcess")
-    } else if (processMode = "exclude") {
-        IniWrite("", configFile, "Meta", "Process")
-        IniWrite(procStr, configFile, "Meta", "ExcludeProcess")
-    } else {
-        IniWrite("", configFile, "Meta", "Process")
-        IniWrite("", configFile, "Meta", "ExcludeProcess")
-    }
-
-    ; Enable new config by default
-    IniWrite("1", STATE_FILE, "EnabledConfigs", configName)
-
     DestroyModalGui(newGui)
-
-    ; Reload all configs
-    LoadAllConfigs()
-    RefreshConfigList(configName)
-    ReloadAllHotkeys()
+    ConfigStore.Instance.CreateConfig(configName, processMode, procStr)
 }
 
 ; Copy config
 OnCopyConfig(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
@@ -134,7 +98,7 @@ OnCopyConfig(*) {
     copyGui.SetFont("s9", "Microsoft YaHei UI")
 
     copyGui.AddText("x10 y10 w80 h23 +0x200", L("GuiEvents.CopyConfig.NewNameLabel"))
-    defaultName := CurrentConfigName "_copy"
+    defaultName := ConfigStore.Instance.SelectedName "_copy"
     nameEdit := copyGui.AddEdit("x90 y10 w250 h23 vNewName", defaultName)
 
     copyGui.AddButton("x110 y48 w80 h28", L("GuiEvents.Common.OkButton")).OnEvent("Click", OnCopyConfigOK.Bind(copyGui))
@@ -156,46 +120,35 @@ OnCopyConfigOK(copyGui, *) {
         return
     }
 
-    newFile := CONFIG_DIR "\" newName ".ini"
-    if FileExist(newFile) {
+    if FileExist(CONFIG_DIR "\" newName ".ini") {
         MsgBox(Format(L("GuiEvents.Error.ConfigExists"), newName), APP_NAME, "Icon!")
         return
     }
 
-    ; Copy current config file
-    if FileExist(CurrentConfigFile)
-        FileCopy(CurrentConfigFile, newFile)
-
-    ; Update Name field inside copied config
-    IniWrite(newName, newFile, "Meta", "Name")
-
-    ; Enable new config by default
-    IniWrite("1", STATE_FILE, "EnabledConfigs", newName)
-
     DestroyModalGui(copyGui)
-
-    ; Reload all configs
-    LoadAllConfigs()
-    RefreshConfigList(newName)
-    ReloadAllHotkeys()
+    ConfigStore.Instance.CopyConfig(newName)
 }
 
 OnDeleteConfig(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
 
-    result := MsgBox(Format(L("GuiEvents.Confirm.DeleteConfig"), CurrentConfigName), APP_NAME, "YesNo Icon?")
+    result := MsgBox(Format(L("GuiEvents.Confirm.DeleteConfig"), ConfigStore.Instance.SelectedName), APP_NAME, "YesNo Icon?")
     if (result = "Yes")
-        DeleteCurrentConfigAndRefresh()
+        ConfigStore.Instance.DeleteConfig()
 }
 
 OnChangeProcess(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.NoConfigSelected"), APP_NAME, "Icon!")
         return
     }
+
+    cfg := ConfigStore.Instance.Selected()
+    if (cfg = "")
+        return
 
     changeGui := CreateModalGui(L("GuiEvents.ChangeScope.Title"))
     changeGui.SetFont("s9", "Microsoft YaHei UI")
@@ -207,9 +160,9 @@ OnChangeProcess(*) {
     excludeRadio := changeGui.AddRadio("x20 y71 w350 h20 vScopeExcludeRadio", L("GuiEvents.NewConfig.ScopeExclude"))
 
     ; Select radio based on current mode
-    if (CurrentProcessMode = "include")
+    if (cfg["processMode"] = "include")
         includeRadio.Value := 1
-    else if (CurrentProcessMode = "exclude")
+    else if (cfg["processMode"] = "exclude")
         excludeRadio.Value := 1
     else
         globalRadio.Value := 1
@@ -219,17 +172,17 @@ OnChangeProcess(*) {
 
     ; Populate process list text based on current mode
     displayProc := ""
-    if (CurrentProcessMode = "include")
-        displayProc := StrReplace(CurrentProcess, "|", "`n")
-    else if (CurrentProcessMode = "exclude")
-        displayProc := StrReplace(CurrentExcludeProcess, "|", "`n")
+    if (cfg["processMode"] = "include")
+        displayProc := StrReplace(cfg["process"], "|", "`n")
+    else if (cfg["processMode"] = "exclude")
+        displayProc := StrReplace(cfg["excludeProcess"], "|", "`n")
 
     procEdit := changeGui.AddEdit("x20 y138 w290 h65 vProcName Multi", displayProc)
     procPickBtn2 := changeGui.AddButton("x315 y138 w55 h25 vProcessPickButton", L("GuiEvents.Common.ProcessPickButton"))
     procPickBtn2.OnEvent("Click", (*) => ShowProcessPicker(procEdit, true))
 
     ; Disable process editing when in global mode
-    isGlobal := (CurrentProcessMode = "global")
+    isGlobal := (cfg["processMode"] = "global")
     SetScopeEditorEnabled(procEdit, procPickBtn2, !isGlobal)
 
     globalRadio.OnEvent("Click", (*) => SetScopeEditorEnabled(procEdit, procPickBtn2, false))
@@ -243,32 +196,10 @@ OnChangeProcess(*) {
 }
 
 OnChangeProcessOK(changeGui, *) {
-    ; Determine process mode and process list
     processMode := GetSelectedScopeMode(changeGui)
     procStr := ProcTextToStr(changeGui["ProcName"].Value)
 
-    global CurrentProcessMode := processMode
-    if (processMode = "include") {
-        global CurrentProcess := procStr
-        global CurrentProcessList := ParseProcessList(procStr)
-        global CurrentExcludeProcess := ""
-        global CurrentExcludeProcessList := []
-    } else if (processMode = "exclude") {
-        global CurrentProcess := ""
-        global CurrentProcessList := []
-        global CurrentExcludeProcess := procStr
-        global CurrentExcludeProcessList := ParseProcessList(procStr)
-    } else {
-        global CurrentProcess := ""
-        global CurrentProcessList := []
-        global CurrentExcludeProcess := ""
-        global CurrentExcludeProcessList := []
-    }
-
-    ProcessText.Value := FormatProcessDisplay(CurrentProcessMode, CurrentProcessList, CurrentExcludeProcessList)
-
-    SaveConfig()
-    ReloadConfigHotkeys(CurrentConfigName)
+    ConfigStore.Instance.SetScope(processMode, procStr)
     DestroyModalGui(changeGui)
 }
 
@@ -277,7 +208,7 @@ OnChangeProcessOK(changeGui, *) {
 ; ============================================================================
 
 OnAddMapping(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
@@ -286,7 +217,7 @@ OnAddMapping(*) {
 }
 
 OnEditMapping(ctrl, rowNum := 0, *) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
@@ -307,7 +238,7 @@ OnEditMapping(ctrl, rowNum := 0, *) {
 }
 
 OnCopyMapping(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
@@ -318,24 +249,20 @@ OnCopyMapping(*) {
         return
     }
 
-    srcMapping := Mappings[rowNum]
+    srcMapping := ConfigStore.Instance.SelectedMappings()[rowNum]
     newMapping := Map()
     for key, val in srcMapping
         newMapping[key] := val
-    Mappings.Push(newMapping)
 
-    SaveConfig()
-    RefreshMappingLV()
-    ReloadConfigHotkeys(CurrentConfigName)
+    newIdx := ConfigStore.Instance.AddMapping(newMapping)
 
-    newIdx := Mappings.Length
     MappingLV.Modify(newIdx, "Select Focus Vis")
     global EditingIndex := newIdx
     ShowEditMappingGui()
 }
 
 OnDeleteMapping(*) {
-    if (CurrentConfigName = "") {
+    if (ConfigStore.Instance.SelectedName = "") {
         MsgBox(L("GuiEvents.Error.SelectOrCreateConfig"), APP_NAME, "Icon!")
         return
     }
@@ -347,12 +274,8 @@ OnDeleteMapping(*) {
     }
 
     result := MsgBox(L("GuiEvents.Confirm.DeleteMapping"), APP_NAME, "YesNo Icon?")
-    if (result = "Yes") {
-        Mappings.RemoveAt(rowNum)
-        SaveConfig()
-        RefreshMappingLV()
-        ReloadConfigHotkeys(CurrentConfigName)
-    }
+    if (result = "Yes")
+        ConfigStore.Instance.DeleteMapping(rowNum)
 }
 
 ; ============================================================================
@@ -385,22 +308,3 @@ SetScopeEditorEnabled(procEdit, procPickBtn, isEnabled) {
     procEdit.Enabled := isEnabled
     procPickBtn.Enabled := isEnabled
 }
-
-DeleteCurrentConfigAndRefresh() {
-    if FileExist(CurrentConfigFile)
-        FileDelete(CurrentConfigFile)
-
-    idx := FindConfigIndex(CurrentConfigName)
-    if (idx > 0)
-        AllConfigs.RemoveAt(idx)
-
-    SaveEnabledStates()
-    global CurrentConfigName := ""
-    global CurrentConfigFile := ""
-    global Mappings := []
-
-    ReloadAllHotkeys()
-    RefreshConfigList()
-}
-
-

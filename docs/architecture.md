@@ -11,19 +11,45 @@
 
 ## 模块职责
 - `src/AHKeyMap.ahk`：全局变量初始化、`APP_ROOT` 解析、模块 `#Include`、启动入口
-- `src/core/Config.ahk`：配置加载/保存、配置列表管理、启用状态持久化（`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据）
+- `src/core/Config.ahk`：纯 INI I/O（加载/保存、配置列表枚举、启用状态持久化）；`SaveConfig` 和 `SaveEnabledStates` 均采用原子写入：先写临时文件再替换，防止中途失败丢失数据
+- `src/core/ConfigStore.ahk`：配置工作副本的唯一所有者；持有 `AllConfigs`、当前选中项、全部变更入口与 `OnChanged` 回调槽（惰性单例 `ConfigStore.Instance`）
 - `src/core/Localization.ahk`：本地化语言包与 `L(key, args*)` 辅助函数
-- `src/ui/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
+- `src/ui/GuiMain.ahk`：主窗口构建、托盘菜单初始化、模态窗口管理，以及渲染层：`RenderFromState` 统一入口 + 纯视图模型构造器（`BuildStatusSummary` / `BuildMappingRows` / `BuildStatusDetails` / `FormatProcessDisplay`）+ 薄控件写入（状态栏告警时显示独立“查看详情”入口，支持悬停提示与手型光标）
 - `src/ui/GuiEvents.ahk`：GUI 事件处理（新建/复制/删除/编辑/作用域）；私有辅助函数 `RadioToProcessMode`、`ProcTextToStr`
 - `src/ui/MappingEditor.ahk`：映射编辑弹窗与按键捕获入口
 - `src/core/KeyCapture.ahk`：按键捕获机制（轮询 + 鼠标钩子）
-- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 由统一会话引擎路由；冲突检测包含跨路径 B/C 修饰键冲突
+- `src/core/HotkeyEngine.ahk`：热键注册/卸载、长按连续触发、修饰键逻辑；路径 A/B 直接注册，路径 C 委托给 `src/core/PathCEngine.ahk`；`ReloadAllHotkeys()` 以返回值 `{conflicts, regErrors}` 输出结果（不再写全局变量），冲突检测 `DetectHotkeyConflicts` 是纯函数
+- `src/core/PathCEngine.ahk`：路径 C 透传组合引擎（会话状态机、统一事件路由、自有的 repeat 定时器与滚轮路由，以及路由热键的自注册/自卸载；入口为惰性单例 `PathCEngine.Instance`；`Commit()` 返回注册失败的按键名数组）
+- `src/shared/Schema.ahk`：记录 schema（纯静态命名空间 `Mapping` / `ConfigRecord`）；映射记录的构造/规范化（7 键白名单、整数化、默认值、最小 10ms 钳制）、路径分类规则（`Mapping.ClassifyPath`）、热键串推导（`Mapping.HotkeyStringFor`）与 INI 序列化字段表（`Mapping.ToIniPairs`）都唯一归属于此
 - `src/shared/Utils.ahk`：按键显示转换、进程选择器、自启功能
 
 ## 全局变量管理
 - 所有全局变量只在 `src/AHKeyMap.ahk` 中定义并初始化。
 - 模块中仅用 `global VarName` 进行引用声明，不重复初始化（重复赋值会在 `#Include` 时覆盖主入口的值）。
 - `src/AHKeyMap.ahk` 通过 `APP_ROOT` 区分源码模式与编译模式：源码模式下根目录为仓库根，编译模式下根目录为 `AHKeyMap.exe` 所在目录，因此两种模式都会在各自根目录下使用 `configs/`。
+
+## 配置存储（ConfigStore）
+- 选中配置只存在一份：`AllConfigs` 中的记录本身；不再有 `Current*` 全局变量镜像。
+- `src/core/ConfigStore.ahk`（惰性单例 `ConfigStore.Instance`）持有 `AllConfigs`、当前选中名（`SelectedName`）与全部变更入口：
+  - 读取：`Selected()` 返回选中记录（无选中时为 `""`），`SelectedMappings()` 返回其映射数组。
+  - 变更（每个方法内部运行同一条 chokepoint）：`Select(name)`、`SetEnabled(flag)`、`SetScope(mode, procStr)`、`AddMapping(mapping)`、`ReplaceMapping(index, mapping)`、`DeleteMapping(index)`、`CreateConfig(name, mode, procStr)`、`CopyConfig(newName)`、`DeleteConfig()`（内含文件删除）。
+- 统一 chokepoint：持久化（原子写配置文件 + `SaveEnabledStates`）→ `ReloadAllHotkeys()` → `OnChanged(reloadResult)`。包括启用开关在内的所有变更都走完全相同的序列，无特殊分支。
+- `Select` 是纯渲染操作（不重载热键）：只持久化 `LastConfig` 并以 `""` 触发 `OnChanged`；`CreateConfig` / `CopyConfig` / `DeleteConfig` 以文件级序列收尾（`LoadAllConfigs` → 重载热键并通知 → `Select`）。
+- GUI 事件处理器只做输入校验 + 一次 store 调用；映射编辑弹窗 OK 时重建全新记录交给 store，Cancel 不触碰任何状态。
+- 测试通过 `ResetConfigStoreForTests()` 重置单例（TestBase 的 `ResetAppState` 会调用）。
+
+## 渲染 Seam（OnChanged → RenderFromState）
+- 依赖方向只允许 ui→core：`src/core/` 中没有任何对 GUI 控件或 ui 函数的引用；唯一的核心→界面数据流是 `ConfigStore.OnChanged` 回调槽（核心持有、界面注册）。
+- `BuildMainGui()` 在启动时执行 `ConfigStore.Instance.SetOnChanged(RenderFromState)`；语言切换重建主窗口时会重新注册。无头测试不注册任何回调，store 完全可测。
+- `RenderFromState(reloadResult)`（`src/ui/GuiMain.ahk`）是唯一渲染入口：
+  - 仅在主窗口存在时运行（无头环境直接返回，不再依赖空字符串守卫）。
+  - 收到 `ReloadAllHotkeys()` 的返回值 `{conflicts, regErrors}` 时存入 ui 侧全局 `LastReloadResult`；收到 `""`（纯渲染事件，如切换选中或切换语言）时沿用上次结果。
+  - 依次刷新配置下拉（`RefreshConfigList`，只读 store 选中态来点亮下拉项；渲染永不回写 store，否则会形成 Select→Notify→Render 的无限递归）、作用域控件（`RefreshScopeControls`）、映射列表（`RefreshMappingLV`）与状态栏（`UpdateStatusText`）。删除配置后改选首个剩余配置、启动时 `LastConfig` 不在磁盘则回退首个配置，这两个决策都在 store 侧完成（`DeleteConfig` / `StartApp`）。
+- 视图模型构造器是纯函数，单元测试直接覆盖（`tests/unit/view_models.test.ahk`）：
+  - `BuildStatusSummary(allConfigs, reloadResult)` → `{text, hasWarning}`；`StatusHasWarning` 由状态栏渲染写入，仅供 ui 悬停处理读取。
+  - `BuildMappingRows(mappings)` → ListView 行数据；`BuildStatusDetails(reloadResult)` → 详情弹窗文本（`OnStatusTextClick` 读取 `LastReloadResult`）。
+  - `FormatProcessDisplay(processMode, processList, excludeProcessList)` → 作用域摘要文本。
+- 引擎输出一律走返回值：`ReloadAllHotkeys()` 返回 `{conflicts, regErrors}`，`DetectHotkeyConflicts()` 返回冲突数组，`PathCEngine.Commit()` 返回注册失败按键名数组（由 `ReloadAllHotkeys` 拼接）；`HotkeyConflicts` / `HotkeyRegErrors` 全局变量已删除。
 
 ## 自动化测试架构
 
@@ -66,6 +92,7 @@
 `RegisterMapping` 根据 `ModifierKey` 与 `PassthroughMod` 分发到三个路径函数。
 
 ### 路径选择逻辑
+- 规则唯一归属于 `Mapping.ClassifyPath`（`src/shared/Schema.ahk`）；注册分发、冲突检测与 Path C 引擎的入口守卫都从它推导：
 - `ModifierKey` 为空 → `RegisterPathA`（普通热键）
 - `ModifierKey` 非空且 `PassthroughMod=0` → `RegisterPathB`（拦截式组合）
 - `ModifierKey` 非空且 `PassthroughMod=1` → `RegisterPathCMapping`（路径 C 映射表，统一由 Path C 引擎处理）
@@ -81,20 +108,20 @@
 - 适合不需要保留修饰键原始行为的组合键场景
 
 ### 路径 C — Path C 引擎（状态机 + 统一路由）
-- 配置层：`ModifierKey` 非空且 `PassthroughMod=1` 的映射在注册阶段不会直接绑定 Hotkey 回调，而是写入 `PathCMappingByModSource` 映射表，按 `modKey "|" sourceKey` 分组。
-- 运行时：在 `ReloadAllHotkeys` 末尾，统一为所有出现过的 `modKey`、`sourceKey` 注册一组“事件路由 Hotkey”：
+- 配置层：`ModifierKey` 非空且 `PassthroughMod=1` 的映射在注册阶段不会直接绑定 Hotkey 回调，而是通过 `PathCEngine.Instance.AddMapping()` 记入引擎内部的映射表，按 `modKey "|" sourceKey` 分组。
+- 运行时：在 `ReloadAllHotkeys` 末尾调用 `PathCEngine.Instance.Commit()`，统一为所有出现过的 `modKey`、`sourceKey` 注册一组“事件路由 Hotkey”：
   - 修饰键：全部使用 `~modKey` / `~modKey Up` 透传物理事件，保证拖拽/浏览器右键手势等外部逻辑可以看到完整的 RButton 按下/移动/松开序列。
-  - 源键：非滚轮键使用 `*sourceKey` / `*sourceKey Up`；滚轮键使用 `*sourceKey`，并通过 `PathC_ShouldRouteWheelSource()` 仅在存在命中的 Path C 会话时拦截，从而保留浏览器 `Ctrl+Wheel` 等原生语义。
+  - 源键：非滚轮键使用 `*sourceKey` / `*sourceKey Up`；滚轮键使用 `*sourceKey`，并通过 `PathCEngine.Instance.ShouldRouteWheel()` 路由谓词仅在存在命中的 Path C 会话时拦截，从而保留浏览器 `Ctrl+Wheel` 等原生语义。
 - 设计目标：优先保留修饰键原始交互，再在这个基础上叠加按键映射；对 `RButton` 而言，浏览器右键手势、网页应用里的右键拖拽画布等能力优先于“绝对不闪菜单”。
-- Path C 引擎内部维护每个修饰键的会话状态：
-  - `state`: `"Idle"` / `"HeldNoCombo"` / `"GestureActive"`
+- Path C 引擎内部为每个修饰键维护一个 `PathCSession` 实例（构造函数固化会话结构）：
+  - `state`: 会话状态，取值为 `PathCEngine` 的 `STATE_IDLE` / `STATE_HELD_NO_COMBO` / `STATE_GESTURE_ACTIVE` 常量（对外经 `GetSessionState(modKey)` 只读暴露）
   - `isGesture`: 当前按下周期是否触发过任意 Path C 组合
   - `activeSources`: 当前会话下参与 repeat 的源键
   - `repeatMappings`: 当前会话下正在 repeat 的映射 ID 集合
 - 源键按下时，Path C 引擎按以下规则决策：
   - 遍历所有 `state != "Idle"` 的修饰键会话，对每个 `modKey "|" sourceKey` 在映射表里查找候选条目。
   - 通过配置层生成的 `checker` 闭包判断进程作用域是否命中；命中后触发映射，并将会话标记为 `GestureActive` / `isGesture = true`。
-  - 若映射开启 `HoldRepeat`，使用现有 `HoldTimers` + `RepeatTimerCallback(sendKey, sourceKey, idx, modKey)` 机制启动定时器，并将 `mapping.id` 记入会话。
+  - 若映射开启 `HoldRepeat`，由引擎自有的 repeat 定时器机制启动定时器（`PathCEngine` 内部的 `StartMappingRepeat`），并将 `mapping.id` 记入会话；路径 A/B 仍使用 `HoldTimers` + `RepeatTimerCallback(sendKey, sourceKey, idx)`。
   - 若未命中任何 Path C 映射，则回退发送原始 `sourceKey`；对于 `Wheel*`，如果当前根本不存在可命中的 Path C 会话，路由热键不会激活，原生滚轮事件会直接透传。
 - 修饰键松开时：
   - 对非 RButton：无论是否触发过组合，只执行 Path C 内部清理逻辑（停止 repeat、清空会话），修饰键物理语义由 `~modKey` 透传负责。
@@ -141,7 +168,7 @@
   - 启动时优先读取 `_state.ini` 中的 `UILanguage`；若缺失，则默认使用英文 (`en-US`) 作为 UI 语言，不再根据操作系统语言自动切换。
 - 托盘菜单提供语言切换入口：
   - `Language` 子菜单下有 `English` / `简体中文`，点击后更新 `CurrentLangCode` 并调用 `SaveEnabledStates()` 持久化。
-  - 切换语言时不会重启整个脚本，而是会“软重启”主窗口：关闭当前主窗口和相关子窗口，再用新的 `CurrentLangCode` 重建主窗口和托盘菜单，保持配置与热键状态不变。
+  - 切换语言时不会重启整个脚本，而是会“软重启”主窗口：关闭当前主窗口和相关子窗口，再用新的 `CurrentLangCode` 重建主窗口和托盘菜单（重建即重新注册 `RenderFromState`），随后清空并重新 `Select` 之前的配置——通过 OnChanged 通知渲染层，用新语言从状态重建整个窗口，保持配置与热键状态不变。
 - 代码与文档语言约定：
   - 源代码中的标识符与注释统一使用英文，便于英语使用者维护；
   - 用户界面文案通过本地化层维护中英双语；

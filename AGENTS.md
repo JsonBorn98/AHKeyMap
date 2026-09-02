@@ -21,12 +21,15 @@ Audience: coding agents working on AHKeyMap.
 ## Repo map
 ```text
 src/AHKeyMap.ahk           — globals, constants, #Include list, StartApp()
-src/core/Config.ahk        — config/state INI I/O and atomic writes
+src/shared/Schema.ahk      — mapping/config record schema (static namespaces: construction, normalization, path rule)
+src/core/Config.ahk        — pure config/state INI I/O and atomic writes
+src/core/ConfigStore.ahk   — config working copy owner: AllConfigs, selection, mutation chokepoint, OnChanged slot
 src/core/Localization.ahk  — `L(key, args*)`, `BuildEnPack()`, `BuildZhPack()`
-src/core/HotkeyEngine.ahk  — Path A/B/C registration, conflicts, process checkers
+src/core/PathCEngine.ahk   — Path C engine (sessions, routing, repeat timers, own hotkey registration)
+src/core/HotkeyEngine.ahk  — Path A/B registration, conflicts, process checkers
 src/core/KeyCapture.ahk    — key capture via polling + mouse hook
 src/shared/Utils.ahk       — key formatting, process picker, auto-start helpers
-src/ui/GuiMain.ahk         — main window, tray menu, modal helpers
+src/ui/GuiMain.ahk         — main window, tray menu, modal helpers, render-from-state layer (pure view-model builders + widget writes)
 src/ui/MappingEditor.ahk   — mapping edit dialog
 src/ui/GuiEvents.ahk       — config/mapping CRUD and scope editing
 tests/support/TestBase.ahk — assertions, sandbox reset, send capture
@@ -80,14 +83,17 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 ## Include / import rules
 - `src/AHKeyMap.ahk` owns the entire `#Include` list. Do not add cross-includes from leaf modules.
 - Include order follows dependency flow:
-  1. `core/Config.ahk`
-  2. `shared/Utils.ahk`
-  3. `core/Localization.ahk`
-  4. `core/HotkeyEngine.ahk`
-  5. `core/KeyCapture.ahk`
-  6. `ui/GuiMain.ahk`
-  7. `ui/MappingEditor.ahk`
-  8. `ui/GuiEvents.ahk`
+  1. `shared/Schema.ahk`
+  2. `core/Config.ahk`
+  3. `core/ConfigStore.ahk`
+  4. `shared/Utils.ahk`
+  5. `core/Localization.ahk`
+  6. `core/PathCEngine.ahk`
+  7. `core/HotkeyEngine.ahk`
+  8. `core/KeyCapture.ahk`
+  9. `ui/GuiMain.ahk`
+  10. `ui/MappingEditor.ahk`
+  11. `ui/GuiEvents.ahk`
 - Only `src/AHKeyMap.ahk` initializes globals with `:=`; other modules may declare `global VarName` but must not reinitialize shared state.
 
 ## Code style
@@ -106,7 +112,9 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 
 ### Types and shared state
 - Use `Map()` for keyed records and arrays for ordered collections.
-- Config records and mappings are `Map()`-based; clone entries with `for k, v in old`, not direct assignment.
+- Mapping/config records are `Map()`-based and constructed through `src/shared/Schema.ahk` (`Mapping.Make`, `ConfigRecord.Make`); never restate the field list inline.
+- `Mapping.Normalize` enforces the record invariants (7-key whitelist, integer coercion, defaults, min-10 repeat timing); `Mapping.ClassifyPath`/`Mapping.HotkeyStringFor` own the path rule and hotkey-string derivation; `Mapping.ToIniPairs` owns the serialization field list.
+- Clone entries with `for k, v in old`, not direct assignment.
 - Prefer in-place mutation (`.Length := 0`, `.Push(...)`) over replacing shared arrays/maps.
 - Coerce numeric INI values with `Integer()` on load.
 - Process lists are stored as `|`-delimited strings in INI and parsed into arrays in memory.
@@ -131,9 +139,26 @@ AutoHotkey64.exe /ErrorStdOut=UTF-8 tests\unit\scope_logic.test.ahk
 
 ### Hotkey and scope conventions
 - The engine uses three paths: Path A (no modifier), Path B (intercept combo), Path C (passthrough combo with session state).
+- Path C lives in `src/core/PathCEngine.ahk`; production code uses the lazy singleton `PathCEngine.Instance`, and only its `Commit()`/`Reset()` methods touch `Hotkey()`.
 - Process scope priority is `include > exclude > global`; an empty include/exclude list effectively behaves as global.
 - Preserve Path C wheel-routing and `RButton` gesture behavior.
 - Keep `AllProcessCheckers` references alive for closure lifetime.
+
+### Config store conventions
+- `src/core/ConfigStore.ahk` owns the config working copy: the `AllConfigs` array, the current selection (`ConfigStore.Instance.SelectedName`), and every mutation.
+- Read the selected config via `ConfigStore.Instance.Selected()` / `SelectedMappings()`; never keep a mirrored set of `Current*` globals.
+- Every mutation goes through one store method (`Select`, `SetEnabled`, `SetScope`, `AddMapping`, `ReplaceMapping`, `DeleteMapping`, `CreateConfig`, `CopyConfig`, `DeleteConfig`); each ends in the same chokepoint: atomic persist (`SaveConfig` + `SaveEnabledStates`) → `ReloadAllHotkeys()` → `OnChanged(reloadResult)`. `Select` is render-only and notifies with `""`.
+- GUI handlers shrink to input validation plus one store call; they must not persist or reload on their own.
+- `src/core/Config.ahk` is pure INI I/O; it owns no selection state and no render code.
+- Tests reset the store with `ResetConfigStoreForTests()` (TestBase calls it from `ResetAppState`).
+
+### Rendering seam conventions
+- `ConfigStore.OnChanged` is the only core→ui data flow: core fires it, ui registers it. `BuildMainGui()` registers `RenderFromState` at startup; nothing in `src/core/` may reference GUI controls or ui functions.
+- `RenderFromState(reloadResult)` in `src/ui/GuiMain.ahk` is the single render entry; it stores the reload result in the ui-owned `LastReloadResult` global and refreshes dropdown, scope controls, mapping list, and status bar.
+- Rendering only runs when the main window exists (`RenderFromState` returns early headless); there are no `StatusText = ""`-style test guards.
+- Pure view-model builders (`BuildStatusSummary`, `BuildMappingRows`, `BuildStatusDetails`, `FormatProcessDisplay`) take data and return view models; unit-test those, not the widgets. Widget writes stay in the thin `Refresh*`/`UpdateStatusText` functions.
+- Engine output is returned, never stored in globals: `ReloadAllHotkeys()` returns `{conflicts, regErrors}`; `DetectHotkeyConflicts` and `PathCEngine.Commit()` return their arrays. `OnStatusTextClick` reads `LastReloadResult`.
+- `StatusHasWarning` is written by the status render and read only by ui hover handlers.
 
 ## Common pitfalls
 - `global Foo := value` inside a module overwrites the main-entry value at `#Include` time.

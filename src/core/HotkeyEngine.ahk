@@ -9,14 +9,7 @@ global ActiveHotkeys
 global HoldTimers
 global InterceptModKeys
 global AllProcessCheckers
-global HotkeyConflicts
-global HotkeyRegErrors
-global PathCMappingByModSource
-global PathCModSessions
-global PathCModsUsed
-global PathCSourceKeysUsed
-global PathCWheelRoutePredicates
-global CONTEXT_MENU_DISMISS_DELAY
+global ForegroundProcessHook
 
 ; ============================================================================
 ; Hotkey engine core
@@ -45,6 +38,11 @@ NormalizeProcessName(procName) {
 }
 
 GetForegroundProcessName() {
+    ; Test seam: when set, the hook replaces the OS foreground-process query
+    if (ForegroundProcessHook != "") {
+        return NormalizeProcessName(ForegroundProcessHook.Call())
+    }
+
     try
         return NormalizeProcessName(WinGetProcessName("A"))
     catch
@@ -84,14 +82,10 @@ AddUniqueArrayValue(arr, value) {
     arr.Push(value)
 }
 
-; For Path C, only register Up hotkeys on source keys that support key-up
-SupportsKeyUpHotkey(hotkeyName) {
-    return !IsWheelSourceKey(hotkeyName)
-}
-
-IsWheelSourceKey(sourceKey) {
-    baseKey := RegExReplace(sourceKey, "^[~*$+!#^]+", "")
-    return RegExMatch(baseKey, "^Wheel")
+; Append every element of src to dest (in order)
+AppendAll(dest, src) {
+    for _, value in src
+        dest.Push(value)
 }
 
 MakeActiveHotkeyRecord(checker := "", configName := "", key := "", keyUp := "") {
@@ -143,12 +137,9 @@ UnregisterAllHotkeys() {
     global InterceptModKeys := Map()
     global HoldTimers := Map()
     global AllProcessCheckers := []
-    global HotkeyRegErrors := []
-    global PathCMappingByModSource := Map()
-    global PathCModSessions := Map()
-    global PathCModsUsed := Map()
-    global PathCSourceKeysUsed := Map()
-    global PathCWheelRoutePredicates := []
+
+    ; Path C hotkeys and state are owned by the Path C engine
+    PathCEngine.Instance.Reset()
 
     ; Then disable each hotkey from the snapshot, ignoring script-level cleanup errors
     for _, info in hotkeysSnapshot {
@@ -170,7 +161,9 @@ UnregisterAllHotkeys() {
 }
 
 ; Reload hotkeys for all enabled configs
+; Returns the engine output as a Map: {conflicts: [...], regErrors: [...]}
 ReloadAllHotkeys() {
+    regErrors := []
     UnregisterAllHotkeys()
 
     ; Split configs by scope priority: include > exclude > global
@@ -195,36 +188,29 @@ ReloadAllHotkeys() {
 
     ; Register in priority order: include first (most specific), global last
     for _, cfg in includeConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
     for _, cfg in excludeConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
     for _, cfg in globalConfigs
-        RegisterConfigHotkeys(cfg)
+        AppendAll(regErrors, RegisterConfigHotkeys(cfg))
 
     ; Register shared routing hotkeys for all Path C mappings
-    RegisterAllPathCHotkeys()
+    AppendAll(regErrors, PathCEngine.Instance.Commit())
 
     HotIf()
 
-    ; Detect hotkey conflicts and update the status bar
-    DetectHotkeyConflicts()
-    UpdateStatusText()
-}
-
-
-; Reload hotkeys for a single config (implemented as full reload for now)
-ReloadConfigHotkeys(configName := "") {
-    ReloadAllHotkeys()
+    return { conflicts: DetectHotkeyConflicts(), regErrors: regErrors }
 }
 
 ; Detect hotkey conflicts across enabled configs with overlapping scopes
+; Pure function: reads AllConfigs, returns the conflict array, touches nothing
 ; Conflict rules:
 ;   global vs any non-empty scope -> conflict
 ;   exclude vs exclude -> conflict (conservative strategy)
 ;   include vs include -> conflict when process lists intersect
 ;   include vs global -> conflict when include is non-empty
 DetectHotkeyConflicts() {
-    global HotkeyConflicts := []
+    conflicts := []
 
     ; Collect mappings from enabled configs together with scope metadata
     hotkeyGroups := Map()
@@ -246,15 +232,9 @@ DetectHotkeyConflicts() {
         else
             procKey := ""
 
-        for idx, mapping in cfg["mappings"] {
-            modKey := mapping["ModifierKey"]
-            sourceKey := mapping["SourceKey"]
-            if (modKey = "")
-                hkStr := sourceKey
-            else if (!mapping["PassthroughMod"])
-                hkStr := modKey " & " sourceKey
-            else
-                hkStr := "~" modKey "+" sourceKey
+        for idx, m in cfg["mappings"] {
+            hkStr := Mapping.HotkeyStringFor(m)
+            modKey := m["ModifierKey"]
 
             entry := {
                 hotkey: hkStr,
@@ -271,14 +251,14 @@ DetectHotkeyConflicts() {
             ; Collect modifier usage by path for cross-path B/C conflict detection
             if (modKey != "") {
                 scopeInfo := { configName: cfg["name"], mode: mode, procKey: procKey }
-                if (!mapping["PassthroughMod"]) {
-                    if !modUsageB.Has(modKey)
-                        modUsageB[modKey] := []
-                    modUsageB[modKey].Push(scopeInfo)
-                } else {
+                if (Mapping.ClassifyPath(m) = Mapping.PATH_C) {
                     if !modUsageC.Has(modKey)
                         modUsageC[modKey] := []
                     modUsageC[modKey].Push(scopeInfo)
+                } else {
+                    if !modUsageB.Has(modKey)
+                        modUsageB[modKey] := []
+                    modUsageB[modKey].Push(scopeInfo)
                 }
             }
         }
@@ -295,7 +275,7 @@ DetectHotkeyConflicts() {
                 a := group[i]
                 b := group[j]
                 if ScopesOverlap(a.mode, a.procKey, b.mode, b.procKey) {
-                    HotkeyConflicts.Push({
+                    conflicts.Push({
                         hotkey: a.hotkey,
                         config1: a.configName,
                         idx1: a.mappingIdx,
@@ -317,7 +297,7 @@ DetectHotkeyConflicts() {
         for _, bEntry in bEntries {
             for _, cEntry in cEntries {
                 if ScopesOverlap(bEntry.mode, bEntry.procKey, cEntry.mode, cEntry.procKey) {
-                    HotkeyConflicts.Push({
+                    conflicts.Push({
                         hotkey: modKey " (Path B/C conflict)",
                         config1: bEntry.configName,
                         idx1: 0,
@@ -328,6 +308,7 @@ DetectHotkeyConflicts() {
             }
         }
     }
+    return conflicts
 }
 
 ; Normalize include process list into a comparable scope key:
@@ -456,10 +437,12 @@ ScopesOverlap(mode1, procKey1, mode2, procKey2) {
 }
 
 ; Register all hotkeys for a single config
+; Returns the array of hotkey names that failed registration
 RegisterConfigHotkeys(cfg) {
+    regErrors := []
     mappings := cfg["mappings"]
     if (mappings.Length = 0)
-        return
+        return regErrors
 
     ; Create process checker closure (used by Path A/B; Path C checks scope in callbacks)
     checker := MakeProcessChecker(cfg)
@@ -471,92 +454,97 @@ RegisterConfigHotkeys(cfg) {
 
     ; Register all mappings under this config (A/B register hotkeys, C builds mapping table)
     for idx, mapping in mappings {
-        RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"])
+        AppendAll(regErrors, RegisterMapping(mapping, useCustomHotIf, checker, cfg["name"] "|" idx, cfg["name"]))
     }
+    return regErrors
 }
 
 ; Register a single mapping by dispatching to Path A/B/C
-RegisterMapping(mapping, useCustomHotIf, checker, uniqueIdx, configName) {
-    modKey := mapping["ModifierKey"]
+; Returns the array of hotkey names that failed registration
+; (local name avoids shadowing the Mapping class; AHK names are case-insensitive)
+RegisterMapping(m, useCustomHotIf, checker, uniqueIdx, configName) {
+    regErrors := []
+    path := Mapping.ClassifyPath(m)
 
     ; Path A: no modifier, direct hotkey registration
-    if (modKey = "") {
+    if (path = Mapping.PATH_A) {
         if (useCustomHotIf)
             HotIf(checker)
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathA(mapping, hkInfo, uniqueIdx)
+        RegisterPathA(m, hkInfo, uniqueIdx, regErrors)
         ActiveHotkeys.Push(hkInfo)
-        return
+        return regErrors
     }
 
     ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
-    if (!mapping["PassthroughMod"]) {
+    if (path = Mapping.PATH_B) {
         if (useCustomHotIf)
             HotIf(checker)
         else
             HotIf()
         hkInfo := MakeActiveHotkeyRecord(checker, configName)
-        RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName)
+        RegisterPathB(m, hkInfo, uniqueIdx, checker, configName, regErrors)
         ActiveHotkeys.Push(hkInfo)
-        return
+        return regErrors
     }
 
     ; Path C: stateful passthrough, handled by Path C engine instead of direct target callback
     HotIf()
-    RegisterPathCMapping(mapping, uniqueIdx, configName, checker)
+    PathCEngine.Instance.AddMapping(m, uniqueIdx, configName, checker)
+    return regErrors
 }
 
 ; Path A: no modifier, directly map sourceKey -> targetKey
-RegisterPathA(mapping, hkInfo, uniqueIdx) {
-    sourceKey := mapping["SourceKey"]
-    targetKey := mapping["TargetKey"]
-    holdRepeat := mapping["HoldRepeat"]
+RegisterPathA(m, hkInfo, uniqueIdx, regErrors) {
+    sourceKey := m["SourceKey"]
+    targetKey := m["TargetKey"]
+    holdRepeat := m["HoldRepeat"]
 
     hkInfo.key := sourceKey
 
     if (holdRepeat) {
-        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        downCb := HoldDownCallback.Bind(targetKey, m["RepeatDelay"], m["RepeatInterval"], uniqueIdx, sourceKey)
         upCb := HoldUpCallback.Bind(uniqueIdx)
         try {
             Hotkey(sourceKey, downCb, "On")
             Hotkey(sourceKey " Up", upCb, "On")
             hkInfo.keyUp := sourceKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push(sourceKey)
+            regErrors.Push(sourceKey)
         }
     } else {
         try Hotkey(sourceKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push(sourceKey)
+            regErrors.Push(sourceKey)
     }
 }
 
 ; Path B: intercepting combo hotkey (modKey & sourceKey), modifier does not pass through
-RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
-    modKey := mapping["ModifierKey"]
-    sourceKey := mapping["SourceKey"]
-    targetKey := mapping["TargetKey"]
-    holdRepeat := mapping["HoldRepeat"]
-    comboKey := modKey " & " sourceKey
+RegisterPathB(m, hkInfo, uniqueIdx, checker, configName, regErrors) {
+    modKey := m["ModifierKey"]
+    sourceKey := m["SourceKey"]
+    targetKey := m["TargetKey"]
+    holdRepeat := m["HoldRepeat"]
+    comboKey := Mapping.HotkeyStringFor(m)
 
     hkInfo.key := comboKey
 
     if (holdRepeat) {
-        downCb := HoldDownCallback.Bind(targetKey, mapping["RepeatDelay"], mapping["RepeatInterval"], uniqueIdx, sourceKey)
+        downCb := HoldDownCallback.Bind(targetKey, m["RepeatDelay"], m["RepeatInterval"], uniqueIdx, sourceKey)
         upCb := HoldUpCallback.Bind(uniqueIdx)
         try {
             Hotkey(comboKey, downCb, "On")
             Hotkey(comboKey " Up", upCb, "On")
             hkInfo.keyUp := comboKey " Up"
         } catch as e {
-            HotkeyRegErrors.Push(comboKey)
+            regErrors.Push(comboKey)
         }
     } else {
         try Hotkey(comboKey, SendKeyCallback.Bind(targetKey), "On")
         catch as e
-            HotkeyRegErrors.Push(comboKey)
+            regErrors.Push(comboKey)
     }
 
     ; Register modifier restore hotkey only once per HotIf scope
@@ -568,39 +556,9 @@ RegisterPathB(mapping, hkInfo, uniqueIdx, checker, configName) {
             ActiveHotkeys.Push(modHkInfo)
             InterceptModKeys[modRegKey] := true
         } catch as e {
-            HotkeyRegErrors.Push(modKey)
+            regErrors.Push(modKey)
         }
     }
-}
-
-; Path C: only build the mapping table; runtime behavior is handled by the Path C engine
-RegisterPathCMapping(mapping, uniqueIdx, configName, checker) {
-    global PathCMappingByModSource, PathCModsUsed, PathCSourceKeysUsed
-
-    modKey := mapping["ModifierKey"]
-    sourceKey := mapping["SourceKey"]
-    if (modKey = "" || !mapping["PassthroughMod"])
-        return
-
-    key := modKey "|" sourceKey
-    if !PathCMappingByModSource.Has(key)
-        PathCMappingByModSource[key] := []
-
-    entry := {
-        modKey: modKey,
-        sourceKey: sourceKey,
-        targetKey: mapping["TargetKey"],
-        holdRepeat: mapping["HoldRepeat"],
-        repeatDelay: mapping["RepeatDelay"],
-        repeatInterval: mapping["RepeatInterval"],
-        configName: configName,
-        id: uniqueIdx,
-        checker: checker
-    }
-    PathCMappingByModSource[key].Push(entry)
-
-    PathCModsUsed[modKey] := true
-    PathCSourceKeysUsed[sourceKey] := true
 }
 
 ; ============================================================================
@@ -640,12 +598,7 @@ StopHoldTimer(idx) {
     }
 }
 
-RepeatTimerCallback(sendKey, sourceKey, idx, modKey := "", *) {
-    ; For Path C: ensure modifier is still held
-    if (modKey != "" && !GetKeyState(modKey, "P")) {
-        StopHoldTimer(idx)
-        return
-    }
+RepeatTimerCallback(sendKey, sourceKey, idx, *) {
     ; Safety check: stop repeating if the source key has been released (non-wheel keys)
     baseKey := RegExReplace(sourceKey, "^[+!#^]+", "")
     if (baseKey != "" && !RegExMatch(baseKey, "^Wheel") && !GetKeyState(baseKey, "P")) {
@@ -668,273 +621,4 @@ RestoreModKeyCallback(modKey, *) {
         return
 
     DispatchSend(KeyToSendFormat(modKey))
-}
-
-; ============================================================================
-; Path C engine (explicit state machine + unified event routing)
-; ============================================================================
-
-; Register all Path C modifier/source hotkeys after config registration completes
-RegisterAllPathCHotkeys() {
-    global PathCModsUsed, PathCSourceKeysUsed, ActiveHotkeys, HotkeyRegErrors, PathCWheelRoutePredicates
-
-    ; Modifiers: keyboard/mouse keys all use "~modKey" / "~modKey Up" to pass through events
-    for modKey, _ in PathCModsUsed {
-        if (modKey = "")
-            continue
-
-        downHk := "~" modKey
-        upHk := "~" modKey " Up"
-
-        try {
-            HotIf()
-            Hotkey(downHk, PathC_ModDownCallback.Bind(modKey), "On")
-            Hotkey(upHk, PathC_ModUpCallback.Bind(modKey), "On")
-        } catch as e {
-            HotkeyRegErrors.Push(downHk)
-            continue
-        }
-
-        modHkInfo := MakeActiveHotkeyRecord("", "", downHk, upHk)
-        ActiveHotkeys.Push(modHkInfo)
-    }
-
-    ; Source keys: listen centrally and let Path C decide what to trigger
-    for sourceKey, _ in PathCSourceKeysUsed {
-        if (sourceKey = "")
-            continue
-
-        sourceHotkey := SubStr(sourceKey, 1, 1) = "*" ? sourceKey : "*" sourceKey
-
-        ; KeyDown
-        hkInfo := MakeActiveHotkeyRecord("", "", sourceHotkey)
-
-        if (IsWheelSourceKey(sourceKey)) {
-            wheelRoutePredicate := PathC_ShouldRouteWheelSource.Bind(sourceKey)
-            try {
-                HotIf(wheelRoutePredicate)
-                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
-                hkInfo.checker := wheelRoutePredicate
-                PathCWheelRoutePredicates.Push(wheelRoutePredicate)
-            } catch as e {
-                HotkeyRegErrors.Push(sourceHotkey)
-            }
-        } else {
-            try {
-                HotIf()
-                Hotkey(sourceHotkey, PathC_SourceDownCallback.Bind(sourceKey), "On")
-            } catch as e {
-                HotkeyRegErrors.Push(sourceHotkey)
-            }
-        }
-
-        ; KeyUp: only for source keys that support Up hotkeys
-        if (SupportsKeyUpHotkey(sourceHotkey)) {
-            srcUpHotkey := sourceHotkey " Up"
-            try {
-                HotIf()
-                Hotkey(srcUpHotkey, PathC_SourceUpCallback.Bind(sourceKey), "On")
-                hkInfo.keyUp := srcUpHotkey
-            } catch as e {
-                HotkeyRegErrors.Push(srcUpHotkey)
-            }
-        }
-        ActiveHotkeys.Push(hkInfo)
-    }
-
-    HotIf()
-}
-
-; Get or initialize the session state for a modifier key
-PathC_GetSession(modKey) {
-    global PathCModSessions
-    if !PathCModSessions.Has(modKey) {
-        PathCModSessions[modKey] := {
-            state: "Idle",
-            isGesture: false,
-            activeSources: Map(),
-            repeatMappings: Map()
-        }
-    }
-    return PathCModSessions[modKey]
-}
-
-; End a modifier session: stop all repeats and reset state
-PathC_EndSession(modKey) {
-    global PathCModSessions, HoldTimers
-    if !PathCModSessions.Has(modKey)
-        return
-
-    session := PathCModSessions[modKey]
-
-    ; Stop all repeat timers associated with this modifier
-    for mappingId, _ in session.repeatMappings {
-        StopHoldTimer(mappingId)
-    }
-
-    session.repeatMappings := Map()
-    session.activeSources := Map()
-    session.state := "Idle"
-    session.isGesture := false
-}
-
-; Whether a mapping is active in the current foreground window (using checker closure)
-PathC_IsMappingActive(mapping) {
-    if (mapping.HasOwnProp("checker") && mapping.checker != "") {
-        try
-            return mapping.checker.Call()
-        catch
-            return false
-    }
-    return true
-}
-
-; Whether a Path C wheel source should be routed by the unified engine
-PathC_ShouldRouteWheelSource(sourceKey, *) {
-    global PathCMappingByModSource, PathCModSessions
-
-    if !IsWheelSourceKey(sourceKey)
-        return false
-
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-
-        key := modKey "|" sourceKey
-        if !PathCMappingByModSource.Has(key)
-            continue
-
-        mappings := PathCMappingByModSource[key]
-        for _, mapping in mappings {
-            if PathC_IsMappingActive(mapping)
-                return true
-        }
-    }
-
-    return false
-}
-
-; Start Path C long-press repeat for a mapping
-PathC_StartRepeat(mapping, modKey, sourceKey) {
-    global HoldTimers
-
-    idx := mapping.id
-    sendKey := KeyToSendFormat(mapping.targetKey)
-
-    ; Defensive cleanup: stop any existing timer to avoid orphan timers on re-entry
-    StopHoldTimer(idx)
-
-    DispatchSend(sendKey)
-
-    timerFn := RepeatTimerCallback.Bind(sendKey, sourceKey, idx, modKey)
-    startFn := StartRepeat.Bind(idx, timerFn, mapping.repeatInterval)
-    HoldTimers[idx] := { fn: timerFn, startFn: startFn, interval: mapping.repeatInterval, active: true }
-    SetTimer(startFn, -mapping.repeatDelay)
-}
-
-; Path C modifier-key down callback (shared entry point)
-PathC_ModDownCallback(modKey, *) {
-    session := PathC_GetSession(modKey)
-
-    ; Force-end any unfinished session before starting a new one
-    if (session.state != "Idle")
-        PathC_EndSession(modKey)
-
-    session := PathC_GetSession(modKey)
-    session.state := "HeldNoCombo"
-    session.isGesture := false
-    session.activeSources := Map()
-    session.repeatMappings := Map()
-}
-
-; Path C modifier-key up callback (shared entry point)
-PathC_ModUpCallback(modKey, *) {
-    session := PathC_GetSession(modKey)
-    if (session.state = "Idle") {
-        return
-    }
-
-    isGesture := session.isGesture
-
-    ; For RButton, only dismiss a possible context menu if this session actually triggered a Path C gesture.
-    ; Sending Escape keeps browser-style right-button gestures usable.
-    if (modKey = "RButton" && isGesture) {
-        SetTimer(PathC_DismissContextMenu, -CONTEXT_MENU_DISMISS_DELAY)
-    }
-
-    PathC_EndSession(modKey)
-}
-
-PathC_DismissContextMenu(*) {
-    DispatchSend("{Escape}")
-}
-
-; Path C source-key down callback (shared entry point)
-PathC_SourceDownCallback(sourceKey, *) {
-    global PathCMappingByModSource, PathCModSessions
-
-    handled := false
-
-    ; Iterate all currently active modifier sessions
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-
-        key := modKey "|" sourceKey
-        if !PathCMappingByModSource.Has(key)
-            continue
-
-        mappings := PathCMappingByModSource[key]
-
-        for _, mapping in mappings {
-            if !PathC_IsMappingActive(mapping)
-                continue
-
-            ; Mark this session as a gesture session
-            session.state := "GestureActive"
-            session.isGesture := true
-
-            if (mapping.holdRepeat) {
-                PathC_StartRepeat(mapping, modKey, sourceKey)
-                session.repeatMappings[mapping.id] := true
-
-                if !session.activeSources.Has(sourceKey)
-                    session.activeSources[sourceKey] := []
-                session.activeSources[sourceKey].Push(mapping.id)
-            } else {
-                DispatchSend(KeyToSendFormat(mapping.targetKey))
-            }
-
-            handled := true
-            break
-        }
-
-        if (handled)
-            break
-    }
-
-    if (!handled) {
-        ; No Path C mapping matched, fall back to the raw source key
-        DispatchSend(KeyToSendFormat(sourceKey))
-    }
-}
-
-; Path C source-key up callback (shared entry point, only for keys that support Up)
-PathC_SourceUpCallback(sourceKey, *) {
-    global PathCModSessions
-
-    for modKey, session in PathCModSessions {
-        if (session.state = "Idle")
-            continue
-        if !session.activeSources.Has(sourceKey)
-            continue
-
-        ids := session.activeSources[sourceKey]
-        for _, mappingId in ids {
-            StopHoldTimer(mappingId)
-            if (session.repeatMappings.Has(mappingId))
-                session.repeatMappings.Delete(mappingId)
-        }
-        session.activeSources.Delete(sourceKey)
-    }
 }
