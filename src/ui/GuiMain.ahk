@@ -116,6 +116,13 @@ BuildMainGui() {
     tray.Add(L("Tray.LanguageMenu"), langMenu)
     tray.Add()
 
+    tray.Add(adminTrayItem, OnRunAsAdmin)
+    if A_IsAdmin
+        tray.Disable(adminTrayItem)
+    tray.Add()
+    tray.Add(exitLabel, OnTrayExit)
+    tray.Default := showMainLabel
+
     ; Register the render seam: every store change re-renders this window
     ConfigStore.Instance.SetOnChanged(RenderFromState)
 }
