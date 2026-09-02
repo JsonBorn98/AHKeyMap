@@ -137,18 +137,14 @@ jobs:
             -Ci `
             -AutoHotkeyPath $env:AHK_BASE_FILE
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-results-integration
-          path: test-results
-        # test-results are diagnostics only; test-summary degrades gracefully
-        # when an artifact is missing. The bound stops a hung upload step from
-        # eating the whole job budget (seen 6/6 on this branch's integration
-        # job: upload completes server-side, the step process never exits).
-        timeout-minutes: 2
-        continue-on-error: true
+      # No upload-artifact step on this job: it hung deterministically (7/7
+      # runs on this branch) in the action's post-upload exit phase — the
+      # server-side artifact completes within 1s, but the step's node process
+      # never exits and wedges the runner below the step/job timeout
+      # machinery (step timeout-minutes: 2 did not fire; job force-cancelled
+      # at 15m with logs purged, so the root cause is unobservable from CI).
+      # The test step still gates build; per-file PASS/FAIL prints into the
+      # job log; test-summary degrades this suite to "No results".
 
   test-gui:
     needs: validate
