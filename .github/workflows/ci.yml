@@ -134,40 +134,46 @@ jobs:
       # SUMMARY when logs go to the stdout pipe (FileAppend to "*") — the
       # only mode that ever hung the AHK process (CI pathAB step + 2/4 local
       # direct runs; reproduced on AHK 2.0.21 and 2.0.27 alike). Log-file mode
-      # (test.ps1's AHKM_TEST_LOG_FILE) never hung the process: 8/8 CI suite
-      # runs and 30+ local runs. Each step now runs one file in log-file mode;
-      # the same step shell tails the log after the AHK exit (no extra process
-      # launch) and the AHK exit code gates build. No upload step here: it
-      # hung in the post-upload phase on 7/7 pre-bisect runs; test-summary
-      # degrades this suite to "No results".
+      # (test.ps1's AHKM_TEST_LOG_FILE) never hung it: 8/8 CI suite runs,
+      # 30+ local runs, and a 10x pathAB loop. The log path MUST be absolute:
+      # AHK resolves relative paths against A_WorkingDir (the script's own
+      # directory, not the shell's), so a relative path landed under
+      # tests\integration\ and Get-Content failed (run 33654770247). Each step
+      # runs one file in log-file mode, tails the log in the same step shell
+      # (no extra process launch), and the AHK exit code gates build. No
+      # upload step here: it hung in the post-upload phase on 7/7 pre-bisect
+      # runs; test-summary degrades this suite to "No results".
       - name: "Run integration test file: config_io.test.ahk"
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force test-results\logs\integration | Out-Null
-          $env:AHKM_TEST_LOG_FILE = "test-results\logs\integration\config_io.test.log"
+          $log = Join-Path $env:GITHUB_WORKSPACE 'test-results\logs\integration\config_io.test.log'
+          New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+          $env:AHKM_TEST_LOG_FILE = $log
           & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\config_io.test.ahk'
           $rc = $LASTEXITCODE
-          Get-Content $env:AHKM_TEST_LOG_FILE | Select-Object -Last 3
+          Get-Content $log | Select-Object -Last 3
           exit $rc
 
       - name: "Run integration test file: hotkey_engine_state.test.ahk"
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force test-results\logs\integration | Out-Null
-          $env:AHKM_TEST_LOG_FILE = "test-results\logs\integration\hotkey_engine_state.test.log"
+          $log = Join-Path $env:GITHUB_WORKSPACE 'test-results\logs\integration\hotkey_engine_state.test.log'
+          New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+          $env:AHKM_TEST_LOG_FILE = $log
           & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\hotkey_engine_state.test.ahk'
           $rc = $LASTEXITCODE
-          Get-Content $env:AHKM_TEST_LOG_FILE | Select-Object -Last 3
+          Get-Content $log | Select-Object -Last 3
           exit $rc
 
       - name: "Run integration test file: hotkey_pathAB.test.ahk"
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force test-results\logs\integration | Out-Null
-          $env:AHKM_TEST_LOG_FILE = "test-results\logs\integration\hotkey_pathAB.test.log"
+          $log = Join-Path $env:GITHUB_WORKSPACE 'test-results\logs\integration\hotkey_pathAB.test.log'
+          New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+          $env:AHKM_TEST_LOG_FILE = $log
           & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\hotkey_pathAB.test.ahk'
           $rc = $LASTEXITCODE
-          Get-Content $env:AHKM_TEST_LOG_FILE | Select-Object -Last 3
+          Get-Content $log | Select-Object -Last 3
           exit $rc
 
   test-gui:
