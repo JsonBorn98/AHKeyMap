@@ -188,25 +188,33 @@ class ConfigStore {
         newFile := CONFIG_DIR "\" name ".ini"
         if FileExist(newFile)
             return
+        tempFile := newFile ".tmp"
 
         try {
-            IniWrite(name, newFile, "Meta", "Name")
-            IniWrite(mode, newFile, "Meta", "ProcessMode")
+            if FileExist(tempFile)
+                FileDelete(tempFile)
+
+            ; Stage the new config in a temp file (atomic write pattern:
+            ; the config path only ever sees a complete file)
+            IniWrite(name, tempFile, "Meta", "Name")
+            IniWrite(mode, tempFile, "Meta", "ProcessMode")
             if (mode = "include") {
-                IniWrite(procStr, newFile, "Meta", "Process")
-                IniWrite("", newFile, "Meta", "ExcludeProcess")
+                IniWrite(procStr, tempFile, "Meta", "Process")
+                IniWrite("", tempFile, "Meta", "ExcludeProcess")
             } else if (mode = "exclude") {
-                IniWrite("", newFile, "Meta", "Process")
-                IniWrite(procStr, newFile, "Meta", "ExcludeProcess")
+                IniWrite("", tempFile, "Meta", "Process")
+                IniWrite(procStr, tempFile, "Meta", "ExcludeProcess")
             } else {
-                IniWrite("", newFile, "Meta", "Process")
-                IniWrite("", newFile, "Meta", "ExcludeProcess")
+                IniWrite("", tempFile, "Meta", "Process")
+                IniWrite("", tempFile, "Meta", "ExcludeProcess")
             }
+            FileMove(tempFile, newFile, 1)
 
             ; Enable new config by default
             IniWrite("1", STATE_FILE, "EnabledConfigs", name)
         } catch as e {
-            ; Remove a partially written file so the name can be retried
+            ; Remove staged/partial files so the name can be retried
+            try FileDelete(tempFile)
             try FileDelete(newFile)
             MsgBox(Format(L("Config.CreateError"), e.Message, newFile), APP_NAME, "IconX")
             return
@@ -225,18 +233,25 @@ class ConfigStore {
         newFile := CONFIG_DIR "\" newName ".ini"
         if FileExist(newFile)
             return
+        tempFile := newFile ".tmp"
 
         try {
+            if FileExist(tempFile)
+                FileDelete(tempFile)
+
+            ; Stage the copy in a temp file (atomic write pattern)
             if FileExist(cfg["file"])
-                FileCopy(cfg["file"], newFile)
+                FileCopy(cfg["file"], tempFile)
 
             ; Update Name field inside copied config
-            IniWrite(newName, newFile, "Meta", "Name")
+            IniWrite(newName, tempFile, "Meta", "Name")
+            FileMove(tempFile, newFile, 1)
 
             ; Enable new config by default
             IniWrite("1", STATE_FILE, "EnabledConfigs", newName)
         } catch as e {
-            ; Remove a partially written file so the name can be retried
+            ; Remove staged/partial files so the name can be retried
+            try FileDelete(tempFile)
             try FileDelete(newFile)
             MsgBox(Format(L("Config.CopyError"), e.Message, newFile), APP_NAME, "IconX")
             return
