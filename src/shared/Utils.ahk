@@ -10,6 +10,7 @@ global REG_VALUE_NAME
 global ProcessPickerOpen
 global ProcessPickerGui
 global DispatchSendHook
+global __AHKM_TEST_MODE
 
 ; ============================================================================
 ; Key format conversion
@@ -83,6 +84,14 @@ DispatchSend(sendKey) {
         DispatchSendHook.Call(sendKey)
         return
     }
+
+    ; Test mode must never inject real keystrokes into the host session:
+    ; an uncaptured dispatch once sent a live Ctrl+C into the developer's
+    ; console and killed the running build (Terminate batch job prompt).
+    ; Tests observe sends via EnableSendCapture; without a hook the send
+    ; is dropped, never sent.
+    if (__AHKM_TEST_MODE)
+        return
 
     Send(sendKey)
 }

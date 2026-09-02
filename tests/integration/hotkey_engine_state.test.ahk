@@ -241,11 +241,18 @@ Test_PathCEngine_ModDown_ResetsStaleSession() {
     engine := PathCEngine()
     engine.AddMapping(MakeMapping("RButton", "F13", "^c", 0, 300, 50, 1), "Cfg|1", "Cfg", "")
 
+    ; Capture sends: OnSourceDown dispatches the mapped target key, and an
+    ; uncaptured dispatch ships a real Ctrl+C into the foreground window
+    ; (it once killed a running build with a Terminate batch job prompt)
+    EnableSendCapture()
+
     ; Start a session and let it trigger a gesture
     engine.OnModDown("RButton")
     AssertEq("HeldNoCombo", engine.GetSessionState("RButton"))
     engine.OnSourceDown("F13")
     AssertEq("GestureActive", engine.GetSessionState("RButton"))
+    AssertEq(1, CapturedSendKeys.Length)
+    AssertEq("^c", CapturedSendKeys[1])
 
     ; Second ModDown without prior Up should cleanly restart the session
     engine.OnModDown("RButton")
