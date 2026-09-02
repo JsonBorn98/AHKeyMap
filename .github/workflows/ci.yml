@@ -129,20 +129,20 @@ jobs:
           if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
           "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # Wedge fix, round 4. Proven so far: log-file mode with no AHK stdout
-      # writes completes the job normally (runs 33654770247, 33656838250 —
-      # Post Checkout and Complete job green; the pre-bisect wedge hung the
-      # next node process after the test step 8/8, and stdout-pipe mode hung
-      # the pathAB AHK process itself, CI + 2/4 local, AHK 2.0.21/2.0.27).
-      # Remaining failure is in-step: Get-Content found no log. Round 3 used
-      # a RELATIVE script path; the only invocations proven end-to-end (test.
-      # ps1's Invoke-TestProcess, local probe A) pass ABSOLUTE script and log
-      # paths. Each step now does exactly that and instruments itself: AHK
-      # exit code, log existence, a recursive .log search under both candidate
-      # roots, and a best-effort tail that no longer fails the step. The AHK
-      # exit code gates build. No upload step here: it hung in the
-      # post-upload phase on 7/7 pre-bisect runs; test-summary degrades this
-      # suite to "No results".
+      # Wedge containment, round 5. Evidence matrix across 11 runs: a runner
+      # that has run hotkey_pathAB.test.ahk to completion wedges the next
+      # NODE process on it (upload-artifact 7/7 pre-bisect; Post Checkout in
+      # run 33657438288) below the step/job timeout machinery; in stdout-pipe
+      # mode the pathAB AHK process hangs instead (run 33652351022). Runs
+      # completing only config_io or engine_state never wedged a node
+      # process (runs 33654770247/33656838250 Post Checkout green, canaries
+      # green). pathAB therefore runs isolated on its own runner in the
+      # test-integration-pathab job; this job keeps config_io + engine_state
+      # (engine_state last) and keeps gating build. All steps use the
+      # invocation proven end-to-end (test.ps1's Invoke-TestProcess, local
+      # probes): absolute script AND log paths, log-file mode (no AHK stdout
+      # writes). No upload step: it hung in the post-upload phase on 7/7
+      # pre-bisect runs; test-summary degrades this suite to "No results".
       - name: "Run integration test file: config_io.test.ahk"
         shell: pwsh
         run: |
@@ -153,11 +153,6 @@ jobs:
           & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' $script
           $rc = $LASTEXITCODE
           Write-Host "AHK exit code: $rc; log exists: $(Test-Path $log)"
-          foreach ($root in @('test-results', 'tests\integration\test-results')) {
-            if (Test-Path $root) {
-              Get-ChildItem $root -Recurse -Filter '*.log' | ForEach-Object { Write-Host "log found: $($_.FullName)" }
-            }
-          }
           if (Test-Path $log) { Get-Content $log | Select-Object -Last 3 }
           exit $rc
 
@@ -173,6 +168,38 @@ jobs:
           Write-Host "AHK exit code: $rc; log exists: $(Test-Path $log)"
           if (Test-Path $log) { Get-Content $log | Select-Object -Last 3 }
           exit $rc
+
+  # Isolation cell for hotkey_pathAB.test.ahk (see the evidence matrix on
+  # test-integration): a runner that completes this file wedges its next
+  # node process (upload-artifact, Post Checkout) below the timeout
+  # machinery, dragging the job to a 15m force-cancel. On its own runner
+  # with job-level continue-on-error the wedge burns this job only; the
+  # step conclusion stays visible in the timeline and the test still runs
+  # on every push/PR. It intentionally does NOT gate build; config_io +
+  # engine_state carry the integration gate.
+  test-integration-pathab:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 10
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Restore toolchain cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .ahk-toolchain
+          key: ${{ env.TOOLCHAIN_CACHE_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Resolve runtime path
+        shell: pwsh
+        run: |
+          $baseFile = Get-ChildItem -Path .ahk-toolchain -Recurse -Filter AutoHotkey64.exe | Select-Object -First 1
+          if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
+          "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: "Run integration test file: hotkey_pathAB.test.ahk"
         shell: pwsh
