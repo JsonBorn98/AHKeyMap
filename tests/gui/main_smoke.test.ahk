@@ -95,11 +95,21 @@ Test_MainGui_SmokeFlow_CoversLifecycle() {
     ; OnDeleteConfig shows a blocking confirmation MsgBox; arm an in-script
     ; timer to click its Yes button (Button1) shortly after it opens, because
     ; SendInput from outside the process is not delivered in this sandbox.
-    SetTimer(() => (
-        hwnd := WinExist(APP_NAME " ahk_class #32770"),
-        hwnd != 0 ? ControlClick("Button1", hwnd) : 0
-    ), -1000)
+    ; The timer must POLL (repeating period), not fire once: a one-shot guess
+    ; at the dialog's open time loses the race whenever the dialog opens late
+    ; (e.g. the machine is busy) and the blocking MsgBox then waits for a
+    ; human forever. OnDeleteConfig returns only after the dialog closes, so
+    ; the timer is stopped right there.
+    pollAttempts := 0
+    clickWhenOpen := (*) => (
+        pollAttempts++,
+        (hwnd := WinExist(APP_NAME " ahk_class #32770")) != 0
+            ? ControlClick("Button1", hwnd)
+            : 0
+    )
+    SetTimer(clickWhenOpen, 100)
     OnDeleteConfig()
+    SetTimer(clickWhenOpen, 0)
 
     AssertFalse(FileExist(CONFIG_DIR "\SmokeConfig.ini"))
     AssertEq(0, AllConfigs.Length)
