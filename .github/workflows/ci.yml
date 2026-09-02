@@ -129,22 +129,50 @@ jobs:
           if (-not $baseFile) { throw "AutoHotkey64.exe not found" }
           "AHK_BASE_FILE=$($baseFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Run integration tests
+      # Bisect of the integration-job wedge (8/8 deterministic on this
+      # branch): after "Run integration tests" succeeds, the NEXT process the
+      # runner starts hangs below the timeout machinery (first the
+      # upload-artifact node, then — with that step removed — the checkout
+      # post node; step and job timeouts never fire, logs purge on the 15m
+      # force-cancel). Each test file now runs in its own step with a node
+      # canary after it: the first canary that never completes indicts the
+      # preceding file via the jobs API step timeline (the only observation
+      # channel that survives the purge). File order matches test.ps1.
+      - name: "Run integration test file: config_io.test.ahk"
         shell: pwsh
         run: |
-          .\scripts\test.ps1 `
-            -Suite integration `
-            -Ci `
-            -AutoHotkeyPath $env:AHK_BASE_FILE
+          & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\config_io.test.ahk'
 
-      # No upload-artifact step on this job: it hung deterministically (7/7
-      # runs on this branch) in the action's post-upload exit phase — the
-      # server-side artifact completes within 1s, but the step's node process
-      # never exits and wedges the runner below the step/job timeout
-      # machinery (step timeout-minutes: 2 did not fire; job force-cancelled
-      # at 15m with logs purged, so the root cause is unobservable from CI).
-      # The test step still gates build; per-file PASS/FAIL prints into the
-      # job log; test-summary degrades this suite to "No results".
+      - name: "Canary: node alive after config_io"
+        shell: pwsh
+        run: |
+          node -e "console.log('canary ok: node started and exited after config_io')"
+
+      - name: "Run integration test file: hotkey_engine_state.test.ahk"
+        shell: pwsh
+        run: |
+          & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\hotkey_engine_state.test.ahk'
+
+      - name: "Canary: node alive after hotkey_engine_state"
+        shell: pwsh
+        run: |
+          node -e "console.log('canary ok: node started and exited after hotkey_engine_state')"
+
+      - name: "Run integration test file: hotkey_pathAB.test.ahk"
+        shell: pwsh
+        run: |
+          & $env:AHK_BASE_FILE '/ErrorStdOut=UTF-8' 'tests\integration\hotkey_pathAB.test.ahk'
+
+      - name: "Canary: node alive after hotkey_pathAB"
+        shell: pwsh
+        run: |
+          node -e "console.log('canary ok: node started and exited after hotkey_pathAB')"
+
+      # No upload-artifact step on this job: it hung deterministically in the
+      # action's post-upload phase (server-side artifact completes within 1s,
+      # the step's node process never exits). test-summary degrades this
+      # suite to "No results"; per-file results gate build via step
+      # conclusions.
 
   test-gui:
     needs: validate
