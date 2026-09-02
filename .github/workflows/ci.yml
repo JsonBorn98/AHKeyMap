@@ -99,6 +99,12 @@ jobs:
         with:
           name: test-results-unit
           path: test-results
+        # test-results are diagnostics only; test-summary degrades gracefully
+        # when an artifact is missing. The bound stops a hung upload step from
+        # eating the whole job budget (seen 6/6 on this branch's integration
+        # job: upload completes server-side, the step process never exits).
+        timeout-minutes: 2
+        continue-on-error: true
 
   test-integration:
     needs: validate
@@ -137,6 +143,12 @@ jobs:
         with:
           name: test-results-integration
           path: test-results
+        # test-results are diagnostics only; test-summary degrades gracefully
+        # when an artifact is missing. The bound stops a hung upload step from
+        # eating the whole job budget (seen 6/6 on this branch's integration
+        # job: upload completes server-side, the step process never exits).
+        timeout-minutes: 2
+        continue-on-error: true
 
   test-gui:
     needs: validate
@@ -175,6 +187,12 @@ jobs:
         with:
           name: test-results-gui
           path: test-results
+        # test-results are diagnostics only; test-summary degrades gracefully
+        # when an artifact is missing. The bound stops a hung upload step from
+        # eating the whole job budget (seen 6/6 on this branch's integration
+        # job: upload completes server-side, the step process never exits).
+        timeout-minutes: 2
+        continue-on-error: true
 
   build:
     needs: [validate, test-unit, test-integration, test-gui]

@@ -10,7 +10,7 @@ A deep module in this repo is an AHK v2 `class` in its own file under `src/core/
 
 ## Tickets
 
-All six landed on branch `architecture-deepening` (PR #2), final version 2.9.8. Landed order: 06 (4e16b2e) → 01 (9087bc9) → 02 (e229f50) → 05 (6151882) → 03 (aa9332f) → 04 (4f592cc).
+All six landed on branch `architecture-deepening` (PR #2). Landed order: 06 (4e16b2e) → 01 (9087bc9) → 02 (e229f50) → 05 (6151882) → 03 (aa9332f) → 04 (4f592cc). Final version 2.9.10: the per-ticket plan said 2.9.8, then two post-land review-fix patch bumps (afe3566 render-recursion fix → 2.9.9; CreateConfig/CopyConfig atomic-write fix → 2.9.10).
 
 - `issues/01-deepen-path-c-engine.md` — Depends on: none. Land first.
 - `issues/02-collapse-config-working-copy.md` — Depends on: 01 (soft).
